@@ -1,0 +1,28 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'com.github.ArrivedBog593'
+version = '1.0'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.json:json:20231013'
+    implementation 'org.apache.poi:poi-ooxml:5.4.0'
+    implementation 'org.apache.logging.log4j:log4j-core:2.25.3'
+    testImplementation platform('org.junit:junit-bom:6.0.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+application {
+    mainClass = 'com.github.ArrivedBog593.Main'
+}
