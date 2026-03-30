@@ -19,7 +19,7 @@ public class Main {
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
-    static void main() {
+    public static void main(String[] args) {
 
         Scanner sc = new Scanner(System.in);
 

@@ -9,6 +9,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
@@ -72,7 +73,7 @@ public class ClimaService {
         HttpURLConnection con = null;
 
         try {
-            URL url = new URL(urlStr);
+            URL url = URI.create(urlStr).toURL();
             con = (HttpURLConnection) url.openConnection();
             con.setRequestMethod("GET");
             con.setConnectTimeout(TIMEOUT_MS);

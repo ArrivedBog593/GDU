@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.github.ArrivedBog593.logic.GDUCalculatorTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-03-30T04:57:50.371Z" hostname="runnervmrg6be" time="0.097">
+  <properties/>
+  <testcase name="aplicaCapEnTmax()" classname="com.github.ArrivedBog593.logic.GDUCalculatorTest" time="0.051"/>
+  <testcase name="nuncaNegativo()" classname="com.github.ArrivedBog593.logic.GDUCalculatorTest" time="0.009"/>
+  <testcase name="diasConAmbosLimites()" classname="com.github.ArrivedBog593.logic.GDUCalculatorTest" time="0.002"/>
+  <testcase name="calculaGduNormal()" classname="com.github.ArrivedBog593.logic.GDUCalculatorTest" time="0.002"/>
+  <testcase name="exactamenteEnElCap()" classname="com.github.ArrivedBog593.logic.GDUCalculatorTest" time="0.002"/>
+  <testcase name="aplicaBaseEnTmin()" classname="com.github.ArrivedBog593.logic.GDUCalculatorTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
