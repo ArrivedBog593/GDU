@@ -99,7 +99,7 @@ public class ExcelExporter {
     private static void crearHojaResumen(XSSFSheet sheet, List<DiaClima> datos,
                                          Parcela parcela, CellStyle estiloResumen,
                                          CellStyle estiloHeader) {
-        double gduTotal = datos.isEmpty() ? 0 : datos.get(datos.size() - 1).getGduAcumulado();
+        double gduTotal = datos.isEmpty() ? 0 : datos.getLast().getGduAcumulado();
         int diasAnalizados = datos.size();
 
         String[][] filas = {
@@ -204,15 +204,12 @@ public class ExcelExporter {
 
     private static CellStyle crearEstiloHeader(Workbook wb) {
         CellStyle s = wb.createCellStyle();
-        Font f = wb.createFont();
-        f.setBold(true);
-        s.setFont(f);
-        s.setFillForegroundColor(IndexedColors.DARK_GREEN.getIndex());
-        s.setFillPattern(FillPatternType.SOLID_FOREGROUND);
         Font fh = wb.createFont();
         fh.setBold(true);
         fh.setColor(IndexedColors.WHITE.getIndex());
         s.setFont(fh);
+        s.setFillForegroundColor(IndexedColors.DARK_GREEN.getIndex());
+        s.setFillPattern(FillPatternType.SOLID_FOREGROUND);
         s.setAlignment(HorizontalAlignment.CENTER);
         return s;
     }
