@@ -1,0 +1,1409 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calculadora de GDU y riegos</title>
+<meta name="description" content="Grados día acumulados, etapas del cultivo y calendario de riegos por coordenadas, con datos de Open-Meteo y la calibración del INIFAP para maíz del Valle del Fuerte.">
+<meta name="theme-color" content="#16281C">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8C%BD%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --lienzo:#EDEEE1;
+    --lienzo-2:#F6F7EE;
+    --tinta:#16281C;
+    --tinta-suave:#5A6A5C;
+    --milpa:#2F6B45;
+    --sol:#D99406;
+    --surco:#B4552B;
+    --agua:#2A6F91;
+    --linea:#D3D6C0;
+    --sombra:0 1px 0 rgba(22,40,28,.06), 0 8px 24px -18px rgba(22,40,28,.5);
+    --r:4px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--lienzo);
+    color:var(--tinta);
+    font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+    font-size:15px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  .env{max-width:1180px;margin:0 auto;padding:28px 20px 80px}
+
+  /* ---------- encabezado ---------- */
+  header{border-bottom:2px solid var(--tinta);padding-bottom:14px;margin-bottom:26px}
+  .eyebrow{
+    font-family:'IBM Plex Mono',ui-monospace,monospace;
+    font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--tinta-suave);margin:0 0 6px
+  }
+  h1{
+    font-family:'Fraunces','Georgia',serif;
+    font-weight:700;font-size:clamp(30px,5vw,46px);
+    line-height:1;letter-spacing:-.02em;margin:0;
+  }
+  h1 em{font-style:italic;color:var(--milpa)}
+  .lede{max-width:56ch;margin:10px 0 0;color:var(--tinta-suave);font-size:14px}
+
+  /* ---------- layout ---------- */
+  .tablero{display:grid;grid-template-columns:330px 1fr;gap:26px;align-items:start}
+  @media (max-width:900px){.tablero{grid-template-columns:1fr}}
+
+  .panel{
+    background:var(--lienzo-2);
+    border:1px solid var(--linea);
+    border-radius:var(--r);
+    box-shadow:var(--sombra);
+    padding:18px;
+  }
+  .panel.forma{position:sticky;top:20px}
+  @media (max-width:900px){.panel.forma{position:static}}
+
+  fieldset{border:0;padding:0;margin:0 0 18px}
+  legend{
+    font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--milpa);padding:0 0 8px;
+    border-bottom:1px solid var(--linea);width:100%;margin-bottom:12px;
+  }
+  label{display:block;font-size:12.5px;font-weight:500;margin-bottom:5px}
+  .hint{font-weight:400;color:var(--tinta-suave)}
+  input,select{
+    width:100%;padding:8px 9px;border:1px solid var(--linea);border-radius:var(--r);
+    background:#fff;color:var(--tinta);font:500 14px 'IBM Plex Mono',monospace;
+  }
+  input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{
+    outline:2px solid var(--milpa);outline-offset:2px
+  }
+  .fila{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .campo{margin-bottom:12px}
+  .eco{
+    font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--tinta-suave);
+    margin-top:4px;min-height:15px;display:block;word-break:break-word;
+  }
+  .eco.mala{color:var(--surco)}
+  input.mala{border-color:var(--surco)}
+  .mini{
+    background:none;border:1px dashed var(--linea);color:var(--tinta-suave);
+    font:500 11px 'IBM Plex Mono',monospace;padding:5px 8px;border-radius:var(--r);cursor:pointer;
+  }
+  .mini:hover{border-style:solid;border-color:var(--milpa);color:var(--milpa)}
+  .fila-mini{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+
+  .campo.check{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .campo.check input{width:auto;margin:0}
+  .campo.check label{margin:0;font-weight:400}
+  #bloque-riego[hidden]{display:none}
+
+  .aplicado{display:grid;grid-template-columns:1fr 62px 26px;gap:6px;margin-bottom:6px;align-items:center}
+  .aplicado input{padding:6px 7px;font-size:12.5px}
+  .quitar{
+    background:none;border:1px solid var(--linea);border-radius:var(--r);color:var(--surco);
+    cursor:pointer;font-size:15px;line-height:1;padding:6px 0;
+  }
+  .quitar:hover{border-color:var(--surco)}
+  #aplicados:empty+#btn-agregar-riego{margin-top:0}
+
+  /* tarjetas de riego */
+  .riegos{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+  .riego{
+    background:var(--lienzo-2);border:1px solid var(--linea);border-left:3px solid var(--agua);
+    border-radius:var(--r);padding:12px 13px;
+  }
+  .riego.hecho{border-left-color:var(--milpa);opacity:.75}
+  .riego.proyectado{border-left-style:dashed}
+  .riego .n{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--tinta-suave);margin-bottom:4px}
+  .riego .dia{font-family:'Fraunces',serif;font-size:19px;font-weight:700;line-height:1.15}
+  .riego .rango{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--agua);margin-top:3px}
+  .riego .nota{font-size:11.5px;color:var(--tinta-suave);margin-top:7px;line-height:1.35}
+  .riego .etapa{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--tinta);margin-top:6px}
+  .riego .vol{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--tinta-suave);margin-top:3px}
+  .critico{display:inline-block;background:var(--surco);color:#fff;border-radius:3px;
+    padding:0 5px;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;margin-left:4px;vertical-align:1px}
+  .fenologia{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:1px;background:var(--linea);
+    border:1px solid var(--linea);border-radius:var(--r);overflow:hidden;margin-bottom:10px}
+  .fenologia > div{background:var(--lienzo-2);padding:12px 13px}
+  .fenologia .k{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--tinta-suave)}
+  .fenologia .v{font-family:'Fraunces',serif;font-size:18px;font-weight:700;line-height:1.2;margin-top:3px}
+  .fenologia .s{font-size:12px;color:var(--tinta-suave);margin-top:2px}
+  .nota-metodo{font-size:12px;color:var(--tinta-suave);margin:10px 0 0;max-width:70ch}
+    width:100%;padding:12px;border:0;border-radius:var(--r);cursor:pointer;
+    background:var(--tinta);color:var(--lienzo-2);
+    font:600 14px 'Inter',sans-serif;letter-spacing:.01em;
+  }
+  button.calcular:hover{background:var(--milpa)}
+  button.calcular[disabled]{opacity:.55;cursor:progress}
+
+  .aviso{
+    margin-top:12px;padding:10px;border-radius:var(--r);font-size:12.5px;
+    background:#FBEDE4;border:1px solid var(--surco);color:var(--surco);
+  }
+  .aviso[hidden]{display:none}
+
+  /* ---------- resultados ---------- */
+  .vacio{
+    border:1px dashed var(--linea);border-radius:var(--r);padding:52px 24px;text-align:center;
+    color:var(--tinta-suave);font-size:14px;
+  }
+  .vacio strong{display:block;font-family:'Fraunces',serif;font-size:20px;color:var(--tinta);margin-bottom:6px}
+
+  .cifras{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--linea);
+    border:1px solid var(--linea);border-radius:var(--r);overflow:hidden;margin-bottom:20px}
+  @media (max-width:720px){.cifras{grid-template-columns:repeat(2,1fr)}}
+  .cifra{background:var(--lienzo-2);padding:14px 14px 12px}
+  .cifra .k{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--tinta-suave);margin-bottom:6px}
+  .cifra .v{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;line-height:1}
+  .cifra .u{font-size:12px;color:var(--tinta-suave);font-weight:400}
+  .cifra.destacada{background:var(--tinta);color:var(--lienzo-2)}
+  .cifra.destacada .k{color:#A9BCA9}
+  .cifra.destacada .u{color:#A9BCA9}
+
+  .seccion{margin-bottom:22px}
+  .seccion h2{
+    font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--tinta-suave);margin:0 0 10px;font-weight:500
+  }
+  svg.grafica{width:100%;height:auto;display:block}
+  .leyenda{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--tinta-suave);margin-top:10px}
+  .llave{display:flex;align-items:center;gap:6px}
+  .swatch{width:11px;height:11px;border-radius:2px;display:inline-block}
+
+  /* barra de avance */
+  .avance{height:26px;border:1px solid var(--linea);border-radius:var(--r);background:#fff;position:relative;overflow:hidden}
+  .avance i{position:absolute;inset:0 auto 0 0;background:var(--milpa);display:block}
+  .avance span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font:600 12px 'IBM Plex Mono',monospace;mix-blend-mode:normal}
+
+  /* tabla */
+  .caja-tabla{max-height:340px;overflow:auto;border:1px solid var(--linea);border-radius:var(--r);background:var(--lienzo-2)}
+  table{border-collapse:collapse;width:100%;font-family:'IBM Plex Mono',monospace;font-size:12.5px}
+  th,td{padding:6px 10px;text-align:right;white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  thead th{position:sticky;top:0;background:var(--tinta);color:var(--lienzo-2);font-weight:500;
+    font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;z-index:1}
+  tbody tr:nth-child(even){background:rgba(22,40,28,.035)}
+  tbody tr.meta td{background:#E7F0E2;font-weight:600}
+  td.cero{color:var(--tinta-suave)}
+  td.tope{color:var(--surco)}
+  td.agua{color:var(--agua)}
+
+  .acciones{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .acciones button{
+    background:none;border:1px solid var(--tinta);color:var(--tinta);border-radius:var(--r);
+    padding:8px 12px;font:500 12.5px 'Inter',sans-serif;cursor:pointer
+  }
+  .acciones button:hover{background:var(--tinta);color:var(--lienzo-2)}
+
+  footer{margin-top:34px;padding-top:14px;border-top:1px solid var(--linea);
+    font-size:12px;color:var(--tinta-suave);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  footer a{color:var(--milpa)}
+
+  @media print{
+    body{background:#fff}
+    .panel.forma,.acciones{display:none}
+    .tablero{grid-template-columns:1fr}
+    .caja-tabla{max-height:none}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="env">
+
+  <header>
+    <p class="eyebrow">Unidades calor · Open-Meteo</p>
+    <h1>Calculadora de <em>GDU</em></h1>
+    <p class="lede">Suma las unidades de calor acumuladas de una parcela a partir de sus coordenadas y un rango de fechas, con datos diarios de temperatura reales.</p>
+  </header>
+
+  <div class="tablero">
+
+    <!-- ============ FORMULARIO ============ -->
+    <form class="panel forma" id="forma" novalidate>
+
+      <fieldset>
+        <legend>Parcela</legend>
+        <div class="campo">
+          <label for="nombre">Nombre</label>
+          <input id="nombre" type="text" value="Parcela" autocomplete="off">
+        </div>
+        <div class="campo">
+          <label for="superficie">Superficie <span class="hint">ha (opcional)</span></label>
+          <input id="superficie" type="number" step="0.1" min="0.1" placeholder="p. ej. 10">
+        </div>
+        <div class="campo">
+          <label for="lat">Latitud <span class="hint">— decimal o grados ° ′ ″</span></label>
+          <input id="lat" type="text" inputmode="text" autocomplete="off" spellcheck="false"
+                 value="25.7908" placeholder="25.7908  ·  25°47'26.9&quot;N">
+          <span class="eco" id="eco-lat"></span>
+        </div>
+        <div class="campo">
+          <label for="lon">Longitud <span class="hint">— decimal o grados ° ′ ″</span></label>
+          <input id="lon" type="text" inputmode="text" autocomplete="off" spellcheck="false"
+                 value="-108.9963" placeholder="-108.9963  ·  108°59'46.7&quot;O">
+          <span class="eco" id="eco-lon"></span>
+        </div>
+        <div class="fila-mini">
+          <button type="button" class="mini" data-coord="25.7908,-108.9963">Los Mochis</button>
+          <button type="button" class="mini" data-coord="25.5333,-108.4667">Guasave</button>
+          <button type="button" class="mini" id="btn-gps">Usar mi ubicación</button>
+          <button type="button" class="mini" id="btn-formato">Cambiar a ° ′ ″</button>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Periodo</legend>
+        <div class="campo">
+          <label for="inicio">Fecha de siembra</label>
+          <input id="inicio" type="date">
+        </div>
+        <div class="campo">
+          <label for="fin">Fecha final del análisis</label>
+          <input id="fin" type="date">
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Cultivo</legend>
+        <div class="campo">
+          <label for="preset">Preajuste</label>
+          <select id="preset">
+            <option value="maiz">Maíz blanco — base 10, tope 30</option>
+            <option value="sorgo">Sorgo — base 10, tope 38</option>
+            <option value="frijol">Frijol — base 12, tope 30</option>
+            <option value="algodon">Algodón — base 15.5, tope 35</option>
+            <option value="trigo">Trigo — base 4.4, tope 30</option>
+            <option value="">Personalizado</option>
+          </select>
+        </div>
+        <div class="fila">
+          <div class="campo">
+            <label for="base">Temp. base °C</label>
+            <input id="base" type="number" step="0.1" value="10">
+          </div>
+          <div class="campo">
+            <label for="tope">Temp. tope °C</label>
+            <input id="tope" type="number" step="0.1" value="30">
+          </div>
+        </div>
+        <div class="campo">
+          <label for="objetivo">GDU objetivo <span class="hint">(opcional)</span></label>
+          <input id="objetivo" type="number" step="1" value="1400" placeholder="Déjalo vacío para omitir">
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Riegos</legend>
+        <div class="campo check">
+          <input type="checkbox" id="planear" checked>
+          <label for="planear">Sugerir calendario de riegos</label>
+        </div>
+        <div id="bloque-riego">
+          <div class="campo">
+            <label for="suelo">Tipo de suelo</label>
+            <select id="suelo">
+              <option value="180">Arcilloso / barrial — 180 mm/m</option>
+              <option value="155">Franco arcilloso — 155 mm/m</option>
+              <option value="135">Franco — 135 mm/m</option>
+              <option value="105">Franco arenoso — 105 mm/m</option>
+              <option value="80">Arenoso — 80 mm/m</option>
+            </select>
+          </div>
+          <div class="campo">
+            <label for="metodo">Método de riego</label>
+            <select id="metodo">
+              <option value="0.65,100,gravedad">Rodado o por gravedad</option>
+              <option value="0.78,60,aspersion">Aspersión</option>
+              <option value="0.90,25,goteo">Goteo</option>
+            </select>
+          </div>
+          <div class="fila">
+            <div class="campo">
+              <label for="lamina">Lámina bruta máx. <span class="hint">mm</span></label>
+              <input id="lamina" type="number" step="5" min="10" value="100">
+            </div>
+            <div class="campo">
+              <label for="nriegos">Riegos previstos</label>
+              <input id="nriegos" type="number" step="1" min="1" max="12" value="4">
+            </div>
+          </div>
+          <div class="campo">
+            <label for="gasto">Gasto de riego <span class="hint">L/s (opcional)</span></label>
+            <input id="gasto" type="number" step="5" min="1" placeholder="p. ej. 150">
+          </div>
+          <div class="campo check">
+            <input type="checkbox" id="inifap" checked>
+            <label for="inifap">Calibración INIFAP del Valle del Fuerte</label>
+          </div>
+          <div class="campo" id="campo-gdamad">
+            <label for="gdamad">GDA a madurez <span class="hint">°D, método INIFAP</span></label>
+            <input id="gdamad" type="number" step="10" min="200" value="1451">
+          </div>
+
+          <div class="campo check">
+            <input type="checkbox" id="asiento" checked>
+            <label for="asiento">Hubo riego de presiembra o asiento</label>
+          </div>
+
+          <div class="campo">
+            <label>Riegos ya aplicados <span class="hint">— fecha y lámina</span></label>
+            <div id="aplicados"></div>
+            <button type="button" class="mini" id="btn-agregar-riego">+ Anotar un riego hecho</button>
+          </div>
+        </div>
+      </fieldset>
+
+      <button class="calcular" type="submit" id="btn-calcular">Calcular acumulado</button>
+      <p class="aviso" id="aviso" hidden></p>
+    </form>
+
+    <!-- ============ RESULTADOS ============ -->
+    <div id="salida">
+      <div class="vacio">
+        <strong>Aún no hay nada que mostrar</strong>
+        Llena los datos de la parcela y presiona <em>Calcular acumulado</em>.
+      </div>
+    </div>
+
+  </div>
+
+  <footer>
+    <span>Datos de clima de <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0) · <a href="https://github.com/ArrivedBog593/GDU" target="_blank" rel="noopener">código en GitHub</a></span>
+    <span>GDU = ((mín(Tmáx, tope) + máx(Tmín, base)) / 2) − base</span>
+  </footer>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = id => document.getElementById(id);
+  const salida = $("salida");
+  const aviso  = $("aviso");
+
+  // ---------- fechas por defecto: últimos 4 meses ----------
+  const hoy = new Date();
+  const iso = d => d.toISOString().slice(0, 10);
+  const haceMeses = (d, n) => { const c = new Date(d); c.setMonth(c.getMonth() - n); return c; };
+  const sumarDias = (f, n) => { const d = new Date(f + "T12:00:00"); d.setDate(d.getDate() + n); return iso(d); };
+  const restarDias = (f, n) => sumarDias(f, -n);
+  const restarAnios = (f, n) => {
+    const [a, m, d] = f.split("-");
+    return `${+a - n}-${m}-${d === "29" && m === "02" ? "28" : d}`;
+  };
+  const diasEntre = (a, b) => Math.round((new Date(b + "T12:00:00") - new Date(a + "T12:00:00")) / 86400000);
+  $("fin").value    = iso(hoy);
+  $("inicio").value = iso(haceMeses(hoy, 4));
+
+  // ---------- coordenadas: decimal o grados/minutos/segundos ----------
+  // Acepta 25.7908 · -108.9963 · 25°47'26.9"N · 108 59 46.7 O · 25°47.45'N · 25:47:26.9 S
+  function leerCoord(txt, esLat) {
+    if (txt == null) return NaN;
+    let s = String(txt).trim().toUpperCase()
+      .replace(/[´`’‘′]/g, "'")
+      .replace(/[“”″]/g, '"')
+      .replace(/[º°]/g, " ")
+      .replace(/,/g, ".");            // coma decimal a la mexicana
+    if (!s) return NaN;
+
+    const hemis = (s.match(/[NSEWO]/) || [])[0] || "";   // O = oeste
+    if (hemis && esLat && !"NS".includes(hemis)) return NaN;
+    if (hemis && !esLat && !"EWO".includes(hemis)) return NaN;
+
+    const negativo = s.includes("-") || (hemis !== "" && "SWO".includes(hemis));
+    const partes = (s.match(/\d+(?:\.\d+)?/g) || []).map(Number);
+    if (!partes.length || partes.length > 3) return NaN;
+
+    const [g, m = 0, seg = 0] = partes;
+    if (m >= 60 || seg >= 60) return NaN;
+    if (partes.length > 1 && !Number.isInteger(g)) return NaN;   // 25.5°47' no tiene sentido
+    if (partes.length > 2 && !Number.isInteger(m)) return NaN;
+
+    const dec = g + m / 60 + seg / 3600;
+    const limite = esLat ? 90 : 180;
+    if (dec > limite) return NaN;
+    return negativo ? -dec : dec;
+  }
+
+  function escribirDMS(dec, esLat) {
+    const hemis = esLat ? (dec < 0 ? "S" : "N") : (dec < 0 ? "O" : "E");
+    let resto = Math.abs(dec);
+    const g = Math.floor(resto);
+    resto = (resto - g) * 60;
+    let m = Math.floor(resto);
+    let s = (resto - m) * 60;
+    if (s >= 59.95) { s = 0; m += 1; }                  // evita 26"→60" al redondear
+    const gg = m >= 60 ? g + 1 : g, mm = m >= 60 ? 0 : m;
+    return `${gg}°${String(mm).padStart(2, "0")}'${s.toFixed(1).padStart(4, "0")}"${hemis}`;
+  }
+
+  let modoDMS = false;
+
+  function refrescarEco(id, esLat) {
+    const campo = $(id), eco = $("eco-" + id);
+    const v = leerCoord(campo.value, esLat);
+    const vacio = campo.value.trim() === "";
+    campo.classList.toggle("mala", !vacio && isNaN(v));
+    eco.classList.toggle("mala", !vacio && isNaN(v));
+    if (vacio)      eco.textContent = "";
+    else if (isNaN(v)) eco.textContent = esLat ? "No se entiende — usa 25.7908 o 25°47'26.9\"N"
+                                              : "No se entiende — usa -108.9963 o 108°59'46.7\"O";
+    else eco.textContent = `= ${v.toFixed(6)}°  ·  ${escribirDMS(v, esLat)}`;
+    return v;
+  }
+
+  const ponerCoord = (id, dec, esLat) => {
+    $(id).value = modoDMS ? escribirDMS(dec, esLat) : dec.toFixed(4);
+    refrescarEco(id, esLat);
+  };
+
+  $("lat").addEventListener("input", () => refrescarEco("lat", true));
+  $("lon").addEventListener("input", () => refrescarEco("lon", false));
+  refrescarEco("lat", true);
+  refrescarEco("lon", false);
+
+  $("btn-formato").addEventListener("click", () => {
+    const la = leerCoord($("lat").value, true), lo = leerCoord($("lon").value, false);
+    modoDMS = !modoDMS;
+    $("btn-formato").textContent = modoDMS ? "Cambiar a decimal" : "Cambiar a ° ′ ″";
+    if (!isNaN(la)) ponerCoord("lat", la, true);
+    if (!isNaN(lo)) ponerCoord("lon", lo, false);
+  });
+
+  // ---------- atajos ----------
+  document.querySelectorAll("[data-coord]").forEach(b => {
+    b.addEventListener("click", () => {
+      const [la, lo] = b.dataset.coord.split(",").map(Number);
+      ponerCoord("lat", la, true);
+      ponerCoord("lon", lo, false);
+    });
+  });
+
+  $("btn-gps").addEventListener("click", () => {
+    if (!navigator.geolocation) return mostrarAviso("Este navegador no comparte la ubicación. Escribe las coordenadas a mano.");
+    navigator.geolocation.getCurrentPosition(
+      p => {
+        ponerCoord("lat", p.coords.latitude, true);
+        ponerCoord("lon", p.coords.longitude, false);
+        ocultarAviso();
+      },
+      () => mostrarAviso("No se pudo leer la ubicación. Escribe las coordenadas a mano.")
+    );
+  });
+
+  // ---------- parámetros por cultivo ----------
+  // kc: coeficientes FAO-56 (inicial, media, final) · zr: profundidad de raíz (m)
+  // p: fracción de agua aprovechable que se puede agotar sin estresar al cultivo
+  const CULTIVOS = {
+    maiz:    { base: 10,   tope: 30, objetivo: 1400, kc: [0.30, 1.20, 0.50], zr: 1.00, p: 0.55,
+               // Modelo de programación integral calibrado para maíz en el Valle del Fuerte
+               // (Ojeda-Bustamante, Sifuentes y Unland, Agrociencia 40:13-25, 2006), el mismo
+               // que usa IrriModel del CEVAF-INIFAP en Juan José Ríos.
+               inifap: {
+                 kmax: 1.25, xkmax: 0.59, a1: 0.45, kco: 0.20,   // Kc = Kmax·erfc(((x-xKmax)/a1)^2)
+                 pro: 0.07, prmax: 1.00, a2: 527,                // Pr = Pro+(Prmax-Pro)(1-exp(-GDA^2/a2^2))
+                 a4: 0.10,                                       // f  = a3 - a4·Kc
+                 a3: { gravedad: 0.80, aspersion: 0.60, goteo: 0.50 },  // goteo: extrapolado, no publicado
+                 tcmin: 10, tcmax: 30, gdaMadurez: 1451,
+                 // °D acumulados en que se alcanza cada etapa (Ojeda-Bustamante et al., 2006).
+                 // Entre emergencia y V10 la tabla publicada trae etapas que no pude recuperar
+                 // completas; ese tramo se muestra como desarrollo vegetativo, sin inventar fechas.
+                 etapas: [
+                   { clave: "S",   nombre: "Siembra",              gda: 0 },
+                   { clave: "VE",  nombre: "Emergencia",           gda: 109.4,
+                     despues: "desarrollo vegetativo" },
+                   { clave: "V10", nombre: "V10",                  gda: 576.1 },
+                   { clave: "VT",  nombre: "Flor masculina",       gda: 665.2 },
+                   { clave: "R1",  nombre: "Jiloteo",              gda: 823.5 },
+                   { clave: "R2",  nombre: "Grano acuoso",         gda: 978.6 },
+                   { clave: "R3",  nombre: "Grano lechoso",        gda: 1102.3 },
+                   { clave: "R4",  nombre: "Grano masoso",         gda: 1239.8 },
+                   { clave: "R5",  nombre: "Grano dentado",        gda: 1335.5 },
+                   { clave: "R6",  nombre: "Madurez fisiológica",  gda: 1451.1 }
+                 ],
+                 // floración y grano lechoso: el periodo en que la falta de agua más castiga
+                 critico: ["VT", "R4"]
+               } },
+    sorgo:   { base: 10,   tope: 38, objetivo: 1600, kc: [0.30, 1.05, 0.55], zr: 1.00, p: 0.55 },
+    frijol:  { base: 12,   tope: 30, objetivo: 1200, kc: [0.40, 1.15, 0.35], zr: 0.60, p: 0.45 },
+    algodon: { base: 15.5, tope: 35, objetivo: 1800, kc: [0.35, 1.18, 0.60], zr: 1.20, p: 0.65 },
+    trigo:   { base: 4.4,  tope: 30, objetivo: 1000, kc: [0.30, 1.15, 0.35], zr: 1.20, p: 0.55 }
+  };
+  const cultivoActual = () => CULTIVOS[$("preset").value] || CULTIVOS.maiz;
+
+  $("preset").addEventListener("change", e => {
+    const c = CULTIVOS[e.target.value];
+    if (!c) return;
+    $("base").value = c.base; $("tope").value = c.tope; $("objetivo").value = c.objetivo;
+  });
+  ["base","tope","objetivo"].forEach(id =>
+    $(id).addEventListener("input", () => { $("preset").value = ""; })
+  );
+
+  $("metodo").addEventListener("change", e => {
+    $("lamina").value = e.target.value.split(",")[1];
+  });
+  $("planear").addEventListener("change", e => { $("bloque-riego").hidden = !e.target.checked; });
+
+  // la calibración local solo existe para maíz; en los demás cultivos se usa FAO-56
+  function refrescarInifap() {
+    const hay = !!cultivoActual().inifap;
+    $("inifap").disabled = !hay;
+    if (!hay) $("inifap").checked = false;
+    $("campo-gdamad").hidden = !$("inifap").checked;
+  }
+  $("preset").addEventListener("change", refrescarInifap);
+  $("inifap").addEventListener("change", refrescarInifap);
+  refrescarInifap();
+
+  // ---------- riegos que ya se hicieron ----------
+  function agregarFilaRiego(fecha = "", lamina = "") {
+    const fila = document.createElement("div");
+    fila.className = "aplicado";
+    fila.innerHTML = `
+      <input type="date" class="ap-fecha" min="${$("inicio").value}" max="${$("fin").value}" value="${fecha}">
+      <input type="number" class="ap-lamina" step="5" min="5" placeholder="mm" value="${lamina}">
+      <button type="button" class="quitar" title="Quitar este riego" aria-label="Quitar este riego">×</button>`;
+    fila.querySelector(".quitar").addEventListener("click", () => fila.remove());
+    $("aplicados").appendChild(fila);
+    fila.querySelector(".ap-fecha").focus();
+  }
+  $("btn-agregar-riego").addEventListener("click", () => agregarFilaRiego());
+
+  // mantener los límites de fecha al día si cambia el periodo
+  ["inicio","fin"].forEach(id => $(id).addEventListener("change", () => {
+    document.querySelectorAll(".ap-fecha").forEach(i => {
+      i.min = $("inicio").value; i.max = $("fin").value;
+    });
+  }));
+
+  const leerAplicados = () => [...document.querySelectorAll(".aplicado")]
+    .map(f => ({
+      fecha:  f.querySelector(".ap-fecha").value,
+      lamina: parseFloat(f.querySelector(".ap-lamina").value) || parseFloat($("lamina").value) || 100
+    }))
+    .filter(a => a.fecha)
+    .sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+  function mostrarAviso(txt){ aviso.textContent = txt; aviso.hidden = false; }
+  function ocultarAviso(){ aviso.hidden = true; }
+
+  // ---------- descarga de clima ----------
+  // El archivo histórico va con ~5 días de retraso, así que los días recientes
+  // y los futuros se completan con la API de pronóstico (92 días atrás / 16 adelante).
+  const VARS = "temperature_2m_max,temperature_2m_min,precipitation_sum,et0_fao_evapotranspiration";
+
+  const pedir = async url => {
+    const r = await fetch(url);
+    const j = await r.json().catch(() => null);
+    if (!r.ok) throw new Error((j && j.reason) || `La API respondió con código ${r.status}.`);
+    return j;
+  };
+
+  async function traerClima(lat, lon, inicio, fin) {
+    const comun = `latitude=${lat}&longitude=${lon}&daily=${VARS}&timezone=auto`;
+    const dias = new Map();
+
+    const absorber = json => {
+      const d = json && json.daily;
+      if (!d || !d.time) return;
+      d.time.forEach((f, i) => {
+        const tx = d.temperature_2m_max[i], tn = d.temperature_2m_min[i];
+        if (tx == null || tn == null) return;
+        if (!dias.has(f)) dias.set(f, {
+          fecha: f, tmax: tx, tmin: tn,
+          lluvia: d.precipitation_sum?.[i] ?? 0,
+          et0:    d.et0_fao_evapotranspiration?.[i] ?? null
+        });
+      });
+    };
+
+    const hoyISO = iso(new Date());
+    const fallas = [];
+    const tareas = [
+      pedir(`https://archive-api.open-meteo.com/v1/archive?${comun}&start_date=${inicio}&end_date=${fin}`)
+        .then(absorber).catch(e => fallas.push("archivo histórico: " + e.message))
+    ];
+    // El pronóstico solo aporta si el rango toca los últimos 92 días o el futuro
+    if (fin >= restarDias(hoyISO, 92)) {
+      tareas.push(
+        pedir(`https://api.open-meteo.com/v1/forecast?${comun}&past_days=92&forecast_days=16`)
+          .then(absorber).catch(e => fallas.push("pronóstico: " + e.message))
+      );
+    }
+    await Promise.all(tareas);
+
+    const lista = [...dias.values()]
+      .filter(d => d.fecha >= inicio && d.fecha <= fin)
+      .sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+    if (!lista.length) {
+      throw new Error(fallas.length
+        ? "No se pudo consultar el clima — " + fallas.join(" · ")
+        : "No llegaron datos para ese rango. Revisa las coordenadas y las fechas.");
+    }
+    return { dias: lista, fallas };
+  }
+
+  // Promedio de evapotranspiración de los mismos días del calendario en años
+  // anteriores. Sirve para estimar el consumo de agua más allá del pronóstico.
+  async function traerNormales(lat, lon, desde, hasta, anios = 3) {
+    const comun = `latitude=${lat}&longitude=${lon}&daily=et0_fao_evapotranspiration&timezone=auto`;
+    const acumulado = new Map();   // "MM-DD" -> [suma, cuenta]
+
+    const consultas = [];
+    for (let k = 1; k <= anios; k++) {
+      consultas.push(
+        pedir(`https://archive-api.open-meteo.com/v1/archive?${comun}` +
+              `&start_date=${restarAnios(desde, k)}&end_date=${restarAnios(hasta, k)}`)
+          .then(j => {
+            const d = j && j.daily;
+            if (!d || !d.time) return;
+            d.time.forEach((f, i) => {
+              const v = d.et0_fao_evapotranspiration[i];
+              if (v == null) return;
+              const clave = f.slice(5);
+              const a = acumulado.get(clave) || [0, 0];
+              acumulado.set(clave, [a[0] + v, a[1] + 1]);
+            });
+          })
+          .catch(() => {})
+      );
+    }
+    await Promise.all(consultas);
+
+    const normales = new Map();
+    acumulado.forEach(([suma, n], clave) => normales.set(clave, suma / n));
+    return normales;
+  }
+
+  // ---------- cálculo (misma fórmula del proyecto en Java) ----------
+  const gduDia = (tmax, tmin, base, tope) =>
+    Math.max(((Math.min(tmax, tope) + Math.max(tmin, base)) / 2) - base, 0);
+
+
+  // Función de error complementaria (aproximación de Abramowitz y Stegun 7.1.26).
+  // La necesita el modelo de Kc del INIFAP, que no viene en JavaScript.
+  function erfc(x) {
+    const z = Math.abs(x), t = 1 / (1 + z / 2);
+    const r = t * Math.exp(-z * z - 1.26551223 + t * (1.00002368 + t * (0.37409196 + t * (0.09678418 +
+              t * (-0.18628806 + t * (0.27886807 + t * (-1.13520398 + t * (1.48851587 +
+              t * (-0.82215223 + t * 0.17087277)))))))));
+    return x >= 0 ? r : 2 - r;
+  }
+
+  // Grados día como los define el modelo del INIFAP (Ojeda et al., 2006): se parte de la
+  // temperatura media del día, sin recortar la mínima a la base como hace el método del maíz.
+  const gdaInifap = (tmax, tmin, tcmin, tcmax) => {
+    const media = (tmax + tmin) / 2;
+    if (media <= tcmin) return 0;
+    if (media >= tcmax) return tcmax - tcmin;
+    return media - tcmin;
+  };
+
+  // ---------- fenología ----------
+  // Las etapas publicadas son para 1451 °D a madurez; si se usa otra variedad se
+  // escalan en proporción, que es lo mismo que hace el modelo al usar x = GDA/αo.
+  function etapasEscaladas(cal, gdaMadurez) {
+    const k = gdaMadurez / cal.gdaMadurez;
+    return cal.etapas.map(e => ({ ...e, gda: e.gda * k }));
+  }
+  const etapaEn = (etapas, gda) => {
+    let i = 0;
+    while (i + 1 < etapas.length && gda >= etapas[i + 1].gda) i++;
+    return { actual: etapas[i], siguiente: etapas[i + 1] || null, indice: i };
+  };
+  function enCritico(cal, etapas, gda) {
+    const desde = etapas.find(e => e.clave === cal.critico[0]).gda;
+    const hasta = etapas.find(e => e.clave === cal.critico[1]).gda;
+    return gda >= desde && gda < hasta;
+  }
+
+  // ---------- balance de humedad del suelo (FAO-56 simplificado) ----------
+  //
+  // Se lleva la cuenta del agua que le falta al suelo para estar a capacidad de
+  // campo (el "abatimiento", Dr, en mm):
+  //
+  //   Dr(hoy) = Dr(ayer) + ETc − lluvia aprovechada − riego
+  //   ETc     = Kc del día × evapotranspiración de referencia
+  //   TAW     = agua total aprovechable = agua del suelo (mm/m) × profundidad de raíz
+  //   RAW     = la parte de TAW que la planta saca sin sufrir = p × TAW
+  //
+  // Cuando Dr llega a RAW, toca regar. La ventana recomendada va desde que Dr
+  // pasa el 70 % de RAW (ya conviene) hasta el día en que lo alcanza (último sin estrés).
+
+  function balanceHidrico(dias, p, riego, normales) {
+    const c = riego.cultivo;
+    const zrIni = 0.25;
+    // tope de lo que un riego puede meter al suelo con el método y la lámina bruta máxima
+    const laminaNeta = riego.lamina * riego.eficiencia;
+    const etapas = riego.cultivo.inifap && dias[0].gda != null
+      ? etapasEscaladas(riego.cultivo.inifap, riego.gdaMadurez) : null;
+    const gdaR6 = etapas ? etapas[etapas.length - 1].gda : Infinity;
+
+    const cal = riego.calibracion ? c.inifap : null;   // parámetros locales, si se pidieron
+
+    // Kc según el avance en GDU: inicial hasta 12 %, sube hasta 45 %,
+    // se mantiene hasta 75 % y baja hacia el final del ciclo.
+    const kcFAO = f => {
+      const [ini, med, fin] = c.kc;
+      if (f <= 0.12) return ini;
+      if (f <= 0.45) return ini + (med - ini) * ((f - 0.12) / 0.33);
+      if (f <= 0.75) return med;
+      return med + (fin - med) * Math.min((f - 0.75) / 0.25, 1);
+    };
+
+    // Kc = Kmax · erfc(((x − xKmax)/α1)²), con piso en Kco; x = GDA/αo
+    const kcInifap = x => {
+      const k = cal.kmax * erfc(Math.pow((x - cal.xkmax) / cal.a1, 2));
+      return k < cal.kco ? cal.kco : k;
+    };
+
+    const et0Reciente = dias.filter(d => d.et0 != null).slice(-14).map(d => d.et0);
+    const et0Respaldo = et0Reciente.length
+      ? et0Reciente.reduce((s, v) => s + v, 0) / et0Reciente.length : 4;
+
+    const total = dias[dias.length - 1].acum;
+    const meta  = p.objetivo > 0 ? p.objetivo : total;   // sin objetivo, el avance se mide contra lo acumulado
+
+    // Los riegos que ya se hicieron mandan sobre el modelo: hasta el último de
+    // ellos se usa lo que realmente pasó, y de ahí en adelante se vuelve a estimar.
+    const hechos    = new Map(riego.aplicados.map(a => [a.fecha, a]));
+    const corteReal = riego.aplicados.length ? riego.aplicados[riego.aplicados.length - 1].fecha : null;
+    const fueraDeRango = riego.aplicados.filter(a => a.fecha < dias[0].fecha || a.fecha > dias[dias.length - 1].fecha);
+
+    let Dr = riego.asiento ? 0 : riego.aguaSuelo * zrIni * 0.5;
+    const serie = [];
+    const eventos = [];
+    let pendiente = null;        // ventana abierta, esperando el día de riego
+    let ultimoRiego = null;      // para no encimar dos riegos en días seguidos
+
+    dias.forEach(d => {
+      const avance = Math.min(d.acum / meta, 1);
+
+      let zr, kc;
+      if (cal) {
+        // el avance se mide con los grados día del propio modelo, no con los de la pantalla
+        const x = Math.min(d.gda / riego.gdaMadurez, 1.15);
+        kc = kcInifap(x);
+        zr = cal.pro + (cal.prmax - cal.pro) * (1 - Math.exp(-(d.gda * d.gda) / (cal.a2 * cal.a2)));
+      } else {
+        kc = kcFAO(avance);
+        zr = Math.min(zrIni + (c.zr - zrIni) * Math.min(avance / 0.45, 1), c.zr);
+      }
+      const TAW = riego.aguaSuelo * zr;
+      const et0 = d.et0 != null ? d.et0 : (normales.get(d.fecha.slice(5)) ?? et0Respaldo);
+      const etc = kc * et0;
+      const estimado = d.et0 == null;
+
+      // lluvia aprovechada: se descuentan 2 mm de mojado de hojas y el 20 % que escurre
+      const lluviaUtil = Math.max(0, (d.lluvia || 0) * 0.8 - 2);
+
+      // f = α3 − α4·Kc en la calibración local; si no, el ajuste por demanda de FAO-56
+      const pAjustada = cal
+        ? Math.min(Math.max(cal.a3[riego.metodo] - cal.a4 * kc, 0.10), 0.85)
+        : Math.min(Math.max(c.p + 0.04 * (5 - etc), 0.15), 0.8);
+      const RAW = pAjustada * TAW;
+
+      Dr = Math.min(Math.max(Dr + etc - lluviaUtil, 0), TAW);
+
+      if (!pendiente && Dr >= RAW * 0.7) pendiente = { desde: d.fecha };
+
+      let regado = false;
+      const real = hechos.get(d.fecha);
+      const yaPasoLoReal = !corteReal || d.fecha > corteReal;
+
+      const descansado = !ultimoRiego || diasEntre(ultimoRiego, d.fecha) >= 4;
+      const antesDeMadurez = d.gda == null || d.gda < gdaR6;
+      if (real || (yaPasoLoReal && descansado && antesDeMadurez && Dr >= RAW && eventos.length < riego.n)) {
+        // un riego sugerido repone lo que le falta al suelo, hasta lo que admite la lámina máxima;
+        // un riego anotado aporta lo que realmente se le echó
+        const neta = real ? Math.min(real.lamina * riego.eficiencia, TAW)
+                          : Math.min(Dr, laminaNeta, TAW);
+        eventos.push({
+          numero:   eventos.length + 1,
+          fecha:    d.fecha,
+          hecho:    !!real,
+          bruta:    real ? real.lamina : Math.min(Dr, laminaNeta, TAW) / riego.eficiencia,
+          requerida: Dr,
+          gda:      d.gda,
+          etapa:    etapas && d.gda != null ? etapaEn(etapas, d.gda).actual : null,
+          critico:  etapas && d.gda != null ? enCritico(riego.cultivo.inifap, etapas, d.gda) : false,
+          // la ventana se cierra cuando el abatimiento pasa de RAW en un 20 %:
+          // a partir de ahí la planta ya trabaja con estrés
+          desde:    real ? d.fecha : ((pendiente && pendiente.desde) || d.fecha),
+          hasta:    real ? d.fecha
+                         : sumarDias(d.fecha, Math.min(10, Math.max(1, Math.round(RAW * 0.2 / Math.max(etc, 1))))),
+          agotado:  Dr,
+          raw:      RAW,
+          taw:      TAW,
+          neta,
+          estimado: real ? false : estimado,
+          tarde:    !!real && Dr > RAW * 1.1,
+          pronto:   !!real && Dr < RAW * 0.5,
+          avance
+        });
+        Dr = Math.max(0, Dr - neta);
+        eventos[eventos.length - 1].insuficiente = Dr >= RAW;
+        ultimoRiego = d.fecha;
+        pendiente = null;
+        regado = true;
+      }
+
+      serie.push({ fecha: d.fecha, Dr, RAW, TAW, etc, lluvia: d.lluvia || 0, estimado, regado });
+    });
+
+    const faltaron = Dr >= serie[serie.length - 1].RAW && eventos.length >= riego.n;
+    const lluviaTotal = dias.reduce((s, d) => s + (d.lluvia || 0), 0);
+    const etcTotal    = serie.reduce((s, d) => s + d.etc, 0);
+
+    return { serie, eventos, faltaron, lluviaTotal, etcTotal, laminaNeta, fueraDeRango,
+             superficie: riego.superficie, gasto: riego.gasto, eficiencia: riego.eficiencia,
+             calibrada: !!cal, gdaTotal: dias[dias.length - 1].gda ?? null, etapas,
+             llegaMadurez: dias[dias.length - 1].gda != null && dias[dias.length - 1].gda >= gdaR6,
+             gdaMadurez: riego.gdaMadurez,
+             hechos: eventos.filter(e => e.hecho).length };
+  }
+
+  // ---------- formato ----------
+  const nf = (n, d = 1) => n.toLocaleString("es-MX", { minimumFractionDigits: d, maximumFractionDigits: d });
+  const fechaLarga = f => {
+    const [a, m, d] = f.split("-");
+    return new Date(a, m - 1, d).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" });
+  };
+  const fechaCorta = f => {
+    const [a, m, d] = f.split("-");
+    return new Date(a, m - 1, d).toLocaleDateString("es-MX", { day: "2-digit", month: "short" });
+  };
+
+  // ---------- envío ----------
+  let ultimos = null;
+
+  $("forma").addEventListener("submit", async e => {
+    e.preventDefault();
+    ocultarAviso();
+
+    const p = {
+      nombre:   $("nombre").value.trim() || "Parcela",
+      lat:      refrescarEco("lat", true),
+      lon:      refrescarEco("lon", false),
+      inicio:   $("inicio").value,
+      fin:      $("fin").value,
+      base:     parseFloat($("base").value),
+      tope:     parseFloat($("tope").value),
+      objetivo: $("objetivo").value === "" ? null : parseFloat($("objetivo").value)
+    };
+
+    if (!isFinite(p.lat)) return mostrarAviso("Revisa la latitud: acepta 25.7908 o 25°47'26.9\"N, hasta 90°.");
+    if (!isFinite(p.lon)) return mostrarAviso("Revisa la longitud: acepta -108.9963 o 108°59'46.7\"O, hasta 180°.");
+    if (!p.inicio || !p.fin)                              return mostrarAviso("Faltan las fechas del periodo.");
+    if (p.fin <= p.inicio)                                return mostrarAviso("La fecha final debe ser posterior a la de siembra.");
+    if (!isFinite(p.base) || !isFinite(p.tope) || p.tope <= p.base)
+                                                          return mostrarAviso("La temperatura tope debe ser mayor que la base.");
+
+    const btn = $("btn-calcular");
+    btn.disabled = true; btn.textContent = "Consultando el clima…";
+
+    try {
+      const { dias: clima, fallas } = await traerClima(p.lat, p.lon, p.inicio, p.fin);
+      let acum = 0;
+      const dias = clima.map(d => {
+        const g = gduDia(d.tmax, d.tmin, p.base, p.tope);
+        acum += g;
+        return { ...d, gdu: g, acum, tope: d.tmax > p.tope, perdido: g === 0 };
+      });
+
+      // serie paralela de grados día con el método del INIFAP, que es con el que
+      // se calibraron Kc, profundidad de raíz y factor de abatimiento
+      const cultivo = cultivoActual();
+      const usarCal = $("planear").checked && $("inifap").checked && !!cultivo.inifap;
+      if (cultivo.inifap) {
+        let gda = 0;
+        dias.forEach(d => {
+          gda += gdaInifap(d.tmax, d.tmin, cultivo.inifap.tcmin, cultivo.inifap.tcmax);
+          d.gda = gda;
+        });
+      }
+
+      let agua = null;
+      if ($("planear").checked) {
+        btn.textContent = "Calculando riegos…";
+        const sinDato = dias.some(d => d.et0 == null);
+        const normales = sinDato
+          ? await traerNormales(p.lat, p.lon, p.inicio, p.fin)
+          : new Map();
+        agua = balanceHidrico(dias, p, {
+          cultivo:    cultivo,
+          calibracion: usarCal,
+          metodo:     $("metodo").value.split(",")[2],
+          gdaMadurez: Math.max(parseFloat($("gdamad").value) || 1451, 200),
+          aguaSuelo:  parseFloat($("suelo").value),
+          eficiencia: parseFloat($("metodo").value.split(",")[0]),
+          lamina:     Math.max(parseFloat($("lamina").value) || 100, 10),
+          superficie: parseFloat($("superficie").value) || null,
+          gasto:      parseFloat($("gasto").value) || null,
+          n:          Math.max(parseInt($("nriegos").value, 10) || 4, 1),
+          asiento:    $("asiento").checked,
+          aplicados:  leerAplicados()
+        }, normales);
+      }
+
+      ultimos = { p, dias, agua };
+      pintar(p, dias, agua);
+      if (fallas.length) mostrarAviso("Datos incompletos — " + fallas.join(" · "));
+      salida.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } catch (err) {
+      mostrarAviso(err.message || "No se pudo consultar el clima. Revisa tu conexión.");
+    } finally {
+      btn.disabled = false; btn.textContent = "Calcular acumulado";
+    }
+  });
+
+  // ---------- render ----------
+  function pintar(p, dias, agua) {
+    const total    = dias[dias.length - 1].acum;
+    const promedio = total / dias.length;
+    const perdidos = dias.filter(d => d.perdido).length;
+    const topados  = dias.filter(d => d.tope).length;
+
+    // día en que se alcanza el objetivo, o proyección con el ritmo de las últimas 2 semanas
+    let alcanzado = null, proyeccion = null;
+    if (p.objetivo > 0) {
+      alcanzado = dias.find(d => d.acum >= p.objetivo) || null;
+      if (!alcanzado) {
+        const cola = dias.slice(-14);
+        const ritmo = cola.reduce((s, d) => s + d.gdu, 0) / cola.length;
+        if (ritmo > 0.5) {
+          const faltan = Math.ceil((p.objetivo - total) / ritmo);
+          const f = new Date(dias[dias.length - 1].fecha + "T12:00:00");
+          f.setDate(f.getDate() + faltan);
+          proyeccion = { faltan, fecha: iso(f), ritmo };
+        }
+      }
+    }
+
+    const pct = p.objetivo > 0 ? Math.min(100, (total / p.objetivo) * 100) : null;
+
+    salida.innerHTML = `
+      <div class="cifras">
+        <div class="cifra destacada">
+          <div class="k">GDU acumulados</div>
+          <div class="v">${nf(total, 0)}</div>
+        </div>
+        <div class="cifra">
+          <div class="k">Días con dato</div>
+          <div class="v">${dias.length}</div>
+        </div>
+        <div class="cifra">
+          <div class="k">Promedio diario</div>
+          <div class="v">${nf(promedio)} <span class="u">GDU</span></div>
+        </div>
+        <div class="cifra">
+          <div class="k">${alcanzado ? "Objetivo alcanzado" : proyeccion ? "Fecha estimada" : "Días sin avance"}</div>
+          <div class="v" style="font-size:${alcanzado || proyeccion ? "17px" : "26px"};padding-top:${alcanzado || proyeccion ? "5px" : "0"}">
+            ${alcanzado ? fechaLarga(alcanzado.fecha)
+              : proyeccion ? fechaLarga(proyeccion.fecha) + ` <span class="u">+${proyeccion.faltan} d</span>`
+              : perdidos}
+          </div>
+        </div>
+      </div>
+
+      ${pct !== null ? `
+      <div class="seccion">
+        <h2>Avance hacia ${nf(p.objetivo, 0)} GDU</h2>
+        <div class="avance"><i style="width:${pct}%"></i><span>${nf(pct, 1)} %</span></div>
+      </div>` : ""}
+
+      <div class="seccion">
+        <h2>${p.nombre} · ${fechaLarga(p.inicio)} → ${fechaLarga(p.fin)}</h2>
+        ${grafica(dias, p)}
+        <div class="leyenda">
+          <span class="llave"><i class="swatch" style="background:var(--sol)"></i> GDU del día</span>
+          <span class="llave"><i class="swatch" style="background:var(--surco)"></i> Día con tope de calor (${topados})</span>
+          <span class="llave"><i class="swatch" style="background:var(--linea)"></i> Día sin avance (${perdidos})</span>
+          <span class="llave"><i class="swatch" style="background:var(--milpa)"></i> Acumulado</span>
+        </div>
+      </div>
+
+      ${seccionFenologia(dias, agua)}
+      ${agua ? seccionRiegos(agua, p, dias) : ""}
+
+      <div class="seccion">
+        <h2>Detalle diario</h2>
+        <div class="caja-tabla">
+          <table>
+            <thead><tr><th>Fecha</th><th>T. máx</th><th>T. mín</th><th>GDU</th><th>Acumulado</th><th>Lluvia</th>${agua ? "<th>Falta agua</th>" : ""}</tr></thead>
+            <tbody>
+              ${dias.map((d, i) => `
+                <tr class="${alcanzado && d.fecha === alcanzado.fecha ? "meta" : ""}">
+                  <td>${fechaCorta(d.fecha)}</td>
+                  <td>${nf(d.tmax)}</td>
+                  <td>${nf(d.tmin)}</td>
+                  <td class="${d.perdido ? "cero" : d.tope ? "tope" : ""}">${nf(d.gdu)}</td>
+                  <td>${nf(d.acum, 0)}</td>
+                  <td class="${(d.lluvia || 0) > 0 ? "agua" : "cero"}">${nf(d.lluvia || 0)}</td>
+                  ${agua ? `<td class="${agua.serie[i].Dr >= agua.serie[i].RAW ? "tope" : ""}">${nf(agua.serie[i].Dr, 0)}</td>` : ""}
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+        <div class="acciones">
+          <button type="button" id="btn-csv">Descargar CSV</button>
+          <button type="button" id="btn-imprimir">Imprimir o guardar en PDF</button>
+        </div>
+      </div>`;
+
+    $("btn-csv").addEventListener("click", descargarCSV);
+    $("btn-imprimir").addEventListener("click", () => window.print());
+  }
+
+
+  // ---------- etapas del cultivo ----------
+  function seccionFenologia(dias, agua) {
+    const cal = cultivoActual().inifap;
+    if (!cal || dias[0].gda == null) return "";
+    const etapas = etapasEscaladas(cal, Math.max(parseFloat($("gdamad").value) || 1451, 200));
+    const gdaR6 = etapas[etapas.length - 1].gda;
+
+    const hoyISO = iso(new Date());
+    const hoy = [...dias].reverse().find(d => d.fecha <= hoyISO) || dias[dias.length - 1];
+    const { actual, siguiente } = etapaEn(etapas, hoy.gda);
+    const critico = enCritico(cal, etapas, hoy.gda);
+
+    // fecha en que se alcanza un valor de °D: dentro del periodo si se puede,
+    // si no, proyectando con el ritmo de las últimas dos semanas
+    const cola = dias.slice(-14);
+    const ritmo = (cola[cola.length - 1].gda - cola[0].gda) / Math.max(cola.length - 1, 1);
+    const fechaDe = gda => {
+      const d = dias.find(x => x.gda >= gda);
+      if (d) return { fecha: d.fecha, estimada: false };
+      if (ritmo <= 0.5) return null;
+      const ultimo = dias[dias.length - 1];
+      return { fecha: sumarDias(ultimo.fecha, Math.ceil((gda - ultimo.gda) / ritmo)), estimada: true };
+    };
+
+    const sig = siguiente ? fechaDe(siguiente.gda) : null;
+    const inicioCritico = etapas.find(e => e.clave === cal.critico[0]);
+    const finCritico    = etapas.find(e => e.clave === cal.critico[1]);
+    const fCritico = fechaDe(inicioCritico.gda), fFinCritico = fechaDe(finCritico.gda);
+    const fMadurez = fechaDe(gdaR6);
+
+    const textoActual = actual.despues ? `${actual.clave} · ${actual.despues}`
+                      : actual.nombre === actual.clave ? actual.clave : `${actual.clave} · ${actual.nombre}`;
+
+    return `
+      <div class="seccion">
+        <h2>Etapa del cultivo al ${fechaCorta(hoy.fecha)}</h2>
+        <div class="fenologia">
+          <div>
+            <div class="k">Ahora</div>
+            <div class="v">${textoActual}${critico ? '<span class="critico">crítico</span>' : ""}</div>
+            <div class="s">${hoy.gda >= gdaR6 ? "ciclo completo" : `${nf(hoy.gda, 0)} °D de ${nf(gdaR6, 0)}`}</div>
+          </div>
+          <div>
+            <div class="k">Sigue</div>
+            <div class="v">${siguiente ? (siguiente.nombre === siguiente.clave ? siguiente.clave : `${siguiente.clave} · ${siguiente.nombre}`) : "Cosecha"}</div>
+            <div class="s">${sig ? `${sig.estimada ? "≈ " : ""}${fechaLarga(sig.fecha)}` : siguiente ? "fuera del periodo" : "ya en madurez"}</div>
+          </div>
+          <div>
+            <div class="k">Periodo crítico de agua</div>
+            <div class="v">${fCritico ? fechaCorta(fCritico.fecha) : "—"} – ${fFinCritico ? fechaCorta(fFinCritico.fecha) : "—"}</div>
+            <div class="s">floración a grano lechoso${fCritico && fCritico.estimada ? " · estimado" : ""}</div>
+          </div>
+          <div>
+            <div class="k">Madurez fisiológica</div>
+            <div class="v">${fMadurez ? fechaLarga(fMadurez.fecha) : "—"}</div>
+            <div class="s">${fMadurez && fMadurez.estimada ? "estimada con el ritmo reciente" : fMadurez ? "dentro del periodo" : "sin datos suficientes"}</div>
+          </div>
+        </div>
+        ${tiraEtapas(etapas, cal, hoy.gda, agua)}
+      </div>`;
+  }
+
+  function tiraEtapas(etapas, cal, gdaHoy, agua) {
+    const W = 760, H = 96, mL = 8, mR = 8, y0 = 34, alto = 26;
+    const max = etapas[etapas.length - 1].gda;
+    const x = g => mL + (Math.min(g, max) / max) * (W - mL - mR);
+    const c0 = etapas.find(e => e.clave === cal.critico[0]).gda;
+    const c1 = etapas.find(e => e.clave === cal.critico[1]).gda;
+
+    const tramos = etapas.slice(0, -1).map((e, i) => {
+      const x1 = x(e.gda), x2 = x(etapas[i + 1].gda);
+      const tono = i % 2 ? "var(--lienzo)" : "var(--lienzo-2)";
+      const etiqueta = (x2 - x1) > 26
+        ? `<text x="${((x1 + x2) / 2).toFixed(1)}" y="${y0 + 17}" text-anchor="middle" font-size="10"
+                 fill="var(--tinta)" font-family="IBM Plex Mono, monospace">${etapas[i + 1].clave}</text>` : "";
+      return `<rect x="${x1.toFixed(1)}" y="${y0}" width="${(x2 - x1).toFixed(1)}" height="${alto}" fill="${tono}"
+                    stroke="var(--linea)"><title>${etapas[i + 1].clave} · ${etapas[i + 1].nombre} a ${nf(etapas[i + 1].gda, 0)} °D</title></rect>${etiqueta}`;
+    }).join("");
+
+    const riegos = agua ? agua.eventos.filter(e => e.gda != null).map(e => {
+      const px = x(e.gda), tono = e.hecho ? "var(--milpa)" : "var(--agua)";
+      return `<polygon points="${px - 5},${y0 - 3} ${px + 5},${y0 - 3} ${px},${y0 - 12}" fill="${e.hecho ? tono : "none"}"
+                       stroke="${tono}" stroke-width="1.4"><title>Riego ${e.numero} · ${fechaCorta(e.fecha)}</title></polygon>
+              <text x="${px}" y="${y0 - 15}" text-anchor="middle" font-size="9.5" fill="${tono}"
+                    font-family="IBM Plex Mono, monospace">${e.numero}</text>`;
+    }).join("") : "";
+
+    const hx = x(gdaHoy);
+    return `<svg class="grafica" viewBox="0 0 ${W} ${H}" role="img" aria-label="Etapas del cultivo, periodo crítico y riegos">
+      ${tramos}
+      <rect x="${x(c0).toFixed(1)}" y="${y0 + alto + 3}" width="${(x(c1) - x(c0)).toFixed(1)}" height="5" fill="var(--surco)"/>
+      <text x="${((x(c0) + x(c1)) / 2).toFixed(1)}" y="${y0 + alto + 20}" text-anchor="middle" font-size="10"
+            fill="var(--surco)" font-family="IBM Plex Mono, monospace">periodo crítico</text>
+      <line x1="${hx.toFixed(1)}" y1="${y0 - 4}" x2="${hx.toFixed(1)}" y2="${y0 + alto + 4}" stroke="var(--tinta)" stroke-width="2"/>
+      <text x="${Math.min(Math.max(hx, 20), W - 20).toFixed(1)}" y="${H - 2}" text-anchor="middle" font-size="10"
+            font-weight="600" fill="var(--tinta)" font-family="IBM Plex Mono, monospace">hoy</text>
+      ${riegos}
+    </svg>`;
+  }
+
+  // ---------- volumen y tiempo de riego ----------
+  function volumenTexto(laminaBruta, agua) {
+    if (!(laminaBruta > 0)) return "";
+    const m3ha = laminaBruta * 10;                         // 1 mm sobre 1 ha = 10 m³
+    if (!agua.superficie) return `${nf(m3ha, 0)} m³/ha`;
+    const m3 = m3ha * agua.superficie;
+    let t = `${nf(m3, 0)} m³ en ${nf(agua.superficie, 1)} ha`;
+    if (agua.gasto) {
+      const horas = (m3 * 1000) / agua.gasto / 3600;
+      const h = Math.floor(horas), min = Math.round((horas - h) * 60);
+      t += ` · ${h} h ${String(min).padStart(2, "0")} min a ${nf(agua.gasto, 0)} L/s`;
+    }
+    return t;
+  }
+
+  // ---------- calendario de riegos ----------
+  function seccionRiegos(agua, p, dias) {
+    const hoyISO = iso(new Date());
+    const ultimoReal = [...dias].reverse().find(d => d.et0 != null);
+    const cortePronostico = ultimoReal ? ultimoReal.fecha : hoyISO;
+
+    const sugeridos = agua.eventos.filter(e => !e.hecho);
+    const ultimoSugerido = agua.llegaMadurez && !agua.faltaron ? sugeridos[sugeridos.length - 1] : null;
+
+    const tarjetas = agua.eventos.map(e => {
+      const dias_ = diasEntre(hoyISO, e.fecha);
+      const clase = e.hecho ? "riego hecho" : e.estimado ? "riego proyectado" : "riego";
+      const etiqueta = e.hecho ? "Aplicado"
+                     : e === ultimoSugerido ? "Último del ciclo"
+                     : e.fecha <= hoyISO ? "Ya tocaba"
+                     : e.estimado ? "Estimado" : "Próximo";
+
+      let nota;
+      if (e.hecho) {
+        nota = `${nf(e.bruta, 0)} mm de lámina. El suelo iba al ${nf((e.agotado / e.taw) * 100, 0)} % de agotamiento.`
+             + (e.tarde  ? " Se pasó del punto de riego: el cultivo alcanzó a sentir la seca."
+             :  e.pronto ? " Se adelantó al punto de riego; parte del agua se fue abajo de la raíz." : " Cayó en buen punto.")
+             + (e.insuficiente ? " La lámina no alcanzó a llenar el perfil, así que el siguiente riego se adelanta." : "");
+      } else {
+        nota = (dias_ === 0 ? "Hoy. " : dias_ > 0 ? `En ${dias_} días. ` : "")
+             + `Suelo al ${nf((e.agotado / e.taw) * 100, 0)} % de agotamiento. `
+             + (e.requerida > e.neta + 1
+                 ? `Para llenarlo faltan ${nf(e.requerida, 0)} mm netos (${nf(e.requerida / agua.eficiencia, 0)} mm brutos); `
+                   + `con la lámina máxima entran ${nf(e.neta, 0)}.`
+                 : `Lámina: ${nf(e.neta, 0)} mm netos, ${nf(e.bruta, 0)} mm brutos.`)
+             + (e.insuficiente ? " No cabe en un solo riego con la lámina máxima." : "")
+             + (e === ultimoSugerido ? " Con este riego el suelo alcanza a llevar el cultivo hasta madurez." : "");
+      }
+      const etapaTxt = e.etapa
+        ? `<div class="etapa">${e.etapa.clave}${(e.etapa.despues || e.etapa.nombre) !== e.etapa.clave ? " · " + (e.etapa.despues || e.etapa.nombre) : ""}${e.critico ? '<span class="critico">crítico</span>' : ""}</div>` : "";
+      const vol = volumenTexto(e.bruta, agua);
+
+      return `
+        <div class="${clase}">
+          <div class="n">Riego ${e.numero} · ${etiqueta}</div>
+          <div class="dia">${fechaLarga(e.fecha)}</div>
+          <div class="rango">${e.hecho ? `lámina ${nf(e.neta, 0)} mm netos` : `ventana ${fechaCorta(e.desde)} – ${fechaCorta(e.hasta)}`}</div>
+          ${etapaTxt}
+          ${vol ? `<div class="vol">${vol}</div>` : ""}
+          <div class="nota">${nota}</div>
+        </div>`;
+    }).join("");
+
+    // volumen total de lo que falta por regar
+    const pendientes = sugeridos.filter(e => e.fecha > hoyISO);
+    const brutaPendiente = pendientes.reduce((s, e) => s + e.bruta, 0);
+
+    const sinRiegos = !agua.eventos.length;
+
+    return `
+      <div class="seccion">
+        <h2>Calendario de riegos sugerido</h2>
+        ${sinRiegos
+          ? `<p class="nota-metodo">Con la lluvia y el consumo del periodo, el suelo no llegó al punto de riego. Si el ciclo apenas empieza, alarga la fecha final para ver cuándo tocaría el primero.</p>`
+          : `<div class="riegos">${tarjetas}</div>`}
+        ${agua.fueraDeRango.length ? `<p class="nota-metodo"><strong>Nota:</strong> ${agua.fueraDeRango.length} riego(s) anotado(s) quedan fuera del periodo analizado y no se tomaron en cuenta.</p>` : ""}
+        ${agua.hechos ? `<p class="nota-metodo">Se tomaron como ciertos los ${agua.hechos} riego(s) que anotaste; de la última fecha en adelante el calendario se recalculó con el agua que quedó en el suelo.</p>` : ""}
+        ${agua.faltaron ? `<p class="nota-metodo"><strong>Ojo:</strong> con ${$("nriegos").value} riegos de hasta ${$("lamina").value} mm el suelo vuelve a quedar seco antes de terminar el ciclo. Hay que contemplar un riego más.</p>` : ""}
+        ${pendientes.length ? `<p class="nota-metodo"><strong>Por regar:</strong> ${pendientes.length} riego(s), ${nf(brutaPendiente, 0)} mm brutos en total · ${volumenTexto(brutaPendiente, agua)}.</p>` : ""}
+        <p class="nota-metodo">
+          ${agua.calibrada
+            ? `Calculado con el modelo de programación integral calibrado para maíz en el Valle del Fuerte (Ojeda-Bustamante, Sifuentes y Unland, 2006), el mismo que usa IrriModel: ${nf(agua.gdaTotal, 0)} de ${nf(agua.gdaMadurez, 0)} °D a madurez por el método del INIFAP.`
+            : `Calculado con coeficientes genéricos de FAO-56.`}
+          Consumo del cultivo en el periodo: ${nf(agua.etcTotal, 0)} mm · lluvia registrada: ${nf(agua.lluviaTotal, 0)} mm ·
+          cada riego puede aportar hasta ${nf(agua.laminaNeta, 0)} mm netos al suelo.
+          Los días posteriores al ${fechaCorta(cortePronostico)} usan evapotranspiración promedio de años anteriores y suponen que no llueve, así que esas fechas se recorren conforme lleguen datos reales.
+        </p>
+      </div>
+
+      <div class="seccion">
+        <h2>Agua en el suelo</h2>
+        ${graficaAgua(agua)}
+        <div class="leyenda">
+          <span class="llave"><i class="swatch" style="background:var(--tinta)"></i> Agua que le falta al suelo</span>
+          <span class="llave"><i class="swatch" style="background:var(--surco)"></i> Punto de riego</span>
+          <span class="llave"><i class="swatch" style="background:var(--agua)"></i> Lluvia</span>
+          <span class="llave"><i class="swatch" style="background:var(--milpa)"></i> Riego ya aplicado</span>
+        </div>
+      </div>`;
+  }
+
+  function graficaAgua(agua) {
+    const s = agua.serie;
+    const W = 760, H = 240, mL = 46, mR = 46, mT = 14, mB = 26;
+    const pw = W - mL - mR, ph = H - mT - mB;
+    const maxY = Math.max(...s.map(d => Math.max(d.TAW, d.Dr)), 10);
+    const maxLluvia = Math.max(...s.map(d => d.lluvia), 10);
+
+    const x = i => mL + (pw * i) / s.length;
+    const y = v => mT + ph - (v / maxY) * ph;
+    const bw = Math.max(pw / s.length - 0.6, 0.7);
+
+    const ejes = [0, .25, .5, .75, 1].map(f => {
+      const v = maxY * f, yy = y(v);
+      return `<line x1="${mL}" y1="${yy.toFixed(1)}" x2="${W - mR}" y2="${yy.toFixed(1)}" stroke="var(--linea)"/>
+              <text x="${mL - 8}" y="${(yy + 3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="#5A6A5C"
+                    font-family="IBM Plex Mono, monospace">${nf(v, 0)}</text>`;
+    }).join("");
+
+    const lluvia = s.map((d, i) => d.lluvia <= 0 ? "" : `
+      <rect x="${x(i).toFixed(2)}" y="${mT}" width="${bw.toFixed(2)}"
+            height="${((d.lluvia / maxLluvia) * ph * 0.35).toFixed(2)}" fill="var(--agua)" opacity=".5">
+        <title>${fechaCorta(d.fecha)} · ${nf(d.lluvia)} mm de lluvia</title></rect>`).join("");
+
+    const lineaRAW = s.map((d, i) => `${(x(i) + bw / 2).toFixed(1)},${y(d.RAW).toFixed(1)}`).join(" ");
+    const lineaDr  = s.map((d, i) => `${(x(i) + bw / 2).toFixed(1)},${y(d.Dr).toFixed(1)}`).join(" ");
+
+    const marcas = agua.eventos.map(e => {
+      const i = s.findIndex(d => d.fecha === e.fecha);
+      const px = x(i) + bw / 2;
+      const tono = e.hecho ? "var(--milpa)" : "var(--agua)";
+      return `<g><polygon points="${px - 5},${mT + ph} ${px + 5},${mT + ph} ${px},${mT + ph - 9}"
+                    fill="${e.hecho ? tono : "none"}" stroke="${tono}" stroke-width="1.4"/>
+              <text x="${px}" y="${mT + ph + 14}" text-anchor="middle" font-size="10" fill="${tono}"
+                    font-family="IBM Plex Mono, monospace">${e.numero}</text>
+              <title>Riego ${e.numero} · ${fechaCorta(e.fecha)} · ${e.hecho ? "aplicado" : "sugerido"}</title></g>`;
+    }).join("");
+
+    return `<svg class="grafica" viewBox="0 0 ${W} ${H}" role="img"
+              aria-label="Agua que le falta al suelo día a día, con los riegos sugeridos.">
+      ${ejes}${lluvia}
+      <polyline points="${lineaRAW}" fill="none" stroke="var(--surco)" stroke-width="1.4" stroke-dasharray="5 4"/>
+      <polyline points="${lineaDr}" fill="none" stroke="var(--tinta)" stroke-width="2"/>
+      ${marcas}
+    </svg>`;
+  }
+
+  // ---------- gráfica (SVG a mano, sin librerías) ----------
+  function grafica(dias, p) {
+    const W = 760, H = 300, mL = 46, mR = 46, mT = 14, mB = 26;
+    const pw = W - mL - mR, ph = H - mT - mB;
+
+    const maxDia  = Math.max(...dias.map(d => d.gdu), 1);
+    const total   = dias[dias.length - 1].acum;
+    const maxAcum = Math.max(total, p.objetivo || 0) * 1.05;
+
+    const x  = i => mL + (pw * i) / dias.length;
+    const bw = Math.max(pw / dias.length - 0.6, 0.7);
+    const yDia  = v => mT + ph - (v / maxDia) * ph * 0.62;
+    const yAcum = v => mT + ph - (v / maxAcum) * ph;
+
+    const barras = dias.map((d, i) => {
+      const y = yDia(d.gdu);
+      const color = d.perdido ? "var(--linea)" : d.tope ? "var(--surco)" : "var(--sol)";
+      const alto = Math.max(mT + ph - y, d.perdido ? 1.5 : 0);
+      return `<rect x="${x(i).toFixed(2)}" y="${(mT + ph - alto).toFixed(2)}" width="${bw.toFixed(2)}" height="${alto.toFixed(2)}" fill="${color}" opacity=".85"><title>${fechaCorta(d.fecha)} · ${nf(d.tmin)}° / ${nf(d.tmax)}° · ${nf(d.gdu)} GDU · acum. ${nf(d.acum,0)}</title></rect>`;
+    }).join("");
+
+    const linea = dias.map((d, i) => `${(x(i) + bw / 2).toFixed(2)},${yAcum(d.acum).toFixed(2)}`).join(" ");
+
+    // marcas del eje: 5 pasos del acumulado
+    const ejes = [0, .25, .5, .75, 1].map(f => {
+      const v = maxAcum * f, y = yAcum(v);
+      return `<line x1="${mL}" y1="${y.toFixed(1)}" x2="${W - mR}" y2="${y.toFixed(1)}" stroke="var(--linea)" stroke-width="1"/>
+              <text x="${mL - 8}" y="${(y + 3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="#5A6A5C" font-family="IBM Plex Mono, monospace">${nf(v, 0)}</text>`;
+    }).join("");
+
+    // etiquetas de mes
+    let mesPrevio = "";
+    const meses = dias.map((d, i) => {
+      const m = d.fecha.slice(0, 7);
+      if (m === mesPrevio) return "";
+      mesPrevio = m;
+      return `<text x="${x(i).toFixed(1)}" y="${H - 8}" font-size="10" fill="#5A6A5C" font-family="IBM Plex Mono, monospace">${fechaCorta(d.fecha).replace(/^\d+\s*/, "")}</text>`;
+    }).join("");
+
+    const meta = p.objetivo > 0 && p.objetivo <= maxAcum
+      ? `<line x1="${mL}" y1="${yAcum(p.objetivo).toFixed(1)}" x2="${W - mR}" y2="${yAcum(p.objetivo).toFixed(1)}"
+              stroke="var(--tinta)" stroke-width="1.2" stroke-dasharray="5 4"/>
+         <text x="${W - mR}" y="${(yAcum(p.objetivo) - 6).toFixed(1)}" text-anchor="end" font-size="10.5"
+              fill="var(--tinta)" font-family="IBM Plex Mono, monospace">objetivo ${nf(p.objetivo, 0)}</text>` : "";
+
+    return `<svg class="grafica" viewBox="0 0 ${W} ${H}" role="img"
+              aria-label="GDU diarios y acumulados del ${p.inicio} al ${p.fin}. Total ${nf(total,0)} GDU.">
+      ${ejes}${barras}${meta}
+      <polyline points="${linea}" fill="none" stroke="var(--milpa)" stroke-width="2.2" stroke-linejoin="round"/>
+      ${meses}
+    </svg>`;
+  }
+
+  // ---------- CSV ----------
+  function descargarCSV() {
+    if (!ultimos) return;
+    const { p, dias, agua } = ultimos;
+    const filas = [
+      [`Parcela`, p.nombre],
+      [`Coordenadas`, `${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}`],
+      [`Coordenadas (g m s)`, `${escribirDMS(p.lat, true)}  ${escribirDMS(p.lon, false)}`],
+      [`Periodo`, `${p.inicio} a ${p.fin}`],
+      [`Temp. base / tope`, `${p.base} / ${p.tope}`],
+      [`GDU objetivo`, p.objetivo ?? "—"],
+      [],
+      ...(agua ? [["Riegos sugeridos", agua.eventos.map(e => `${e.numero}: ${e.fecha}`).join(" | ")],
+                  ["Lamina neta maxima por riego (mm)", agua.laminaNeta.toFixed(0)],
+                  ...agua.eventos.map(e => [`Riego ${e.numero} ${e.hecho ? "(aplicado)" : "(sugerido)"}`,
+                    `${e.fecha} | ${e.etapa ? e.etapa.clave : ""}${e.critico ? " critico" : ""} | ` +
+                    `${e.bruta.toFixed(0)} mm brutos | ${volumenTexto(e.bruta, agua)}`]),
+                  ["Consumo del cultivo (mm)", agua.etcTotal.toFixed(0)],
+                  ["Lluvia del periodo (mm)", agua.lluviaTotal.toFixed(0)]] : []),
+      [],
+      ["Fecha", "T max (C)", "T min (C)", "GDU dia", "GDU acumulado", "Lluvia (mm)",
+        ...(dias[0].gda != null ? ["GDA INIFAP"] : []),
+        ...(agua ? ["ETc (mm)", "Falta agua (mm)", "Punto de riego (mm)", "Regar"] : [])],
+      ...dias.map((d, i) => [
+        d.fecha, d.tmax, d.tmin, d.gdu.toFixed(2), d.acum.toFixed(2), (d.lluvia || 0).toFixed(1),
+        ...(d.gda != null ? [d.gda.toFixed(1)] : []),
+        ...(agua ? [agua.serie[i].etc.toFixed(2), agua.serie[i].Dr.toFixed(1),
+                    agua.serie[i].RAW.toFixed(1), agua.serie[i].regado ? "SI" : ""] : [])
+      ])
+    ];
+    const csv = "\uFEFF" + filas.map(f => f.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `GDU_${p.nombre.replace(/\s+/g, "_")}_${p.inicio}_${p.fin}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+})();
+</script>
+</body>
+</html>
