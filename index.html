@@ -218,9 +218,9 @@
 <div class="env">
 
   <header>
-    <p class="eyebrow">Unidades calor · Open-Meteo</p>
-    <h1>Calculadora de <em>GDU</em></h1>
-    <p class="lede">Suma las unidades de calor acumuladas de una parcela a partir de sus coordenadas y un rango de fechas, con datos diarios de temperatura reales.</p>
+    <p class="eyebrow">Unidades calor · Etapas · Riegos</p>
+    <h1>Calculadora de <em>GDU</em> y riegos</h1>
+    <p class="lede">Grados día acumulados, etapa del cultivo y calendario de riegos de una parcela a partir de sus coordenadas, con clima real y la calibración del INIFAP para maíz del Valle del Fuerte.</p>
   </header>
 
   <div class="tablero">
@@ -555,6 +555,7 @@
   // la calibración local solo existe para maíz; en los demás cultivos se usa FAO-56
   function refrescarInifap() {
     const hay = !!cultivoActual().inifap;
+    if (hay && $("inifap").disabled) $("inifap").checked = true;   // se había apagado sola por otro cultivo
     $("inifap").disabled = !hay;
     if (!hay) $("inifap").checked = false;
     $("campo-gdamad").hidden = !$("inifap").checked;
@@ -815,6 +816,7 @@
       Dr = Math.min(Math.max(Dr + etc - lluviaUtil, 0), TAW);
 
       if (!pendiente && Dr >= RAW * 0.7) pendiente = { desde: d.fecha };
+      else if (pendiente && Dr < RAW * 0.7) pendiente = null;   // la raíz creció y volvió a haber holgura
 
       let regado = false;
       const real = hechos.get(d.fecha);
@@ -838,7 +840,7 @@
           critico:  etapas && d.gda != null ? enCritico(riego.cultivo.inifap, etapas, d.gda) : false,
           // la ventana se cierra cuando el abatimiento pasa de RAW en un 20 %:
           // a partir de ahí la planta ya trabaja con estrés
-          desde:    real ? d.fecha : ((pendiente && pendiente.desde) || d.fecha),
+          desde:    real ? d.fecha : [ (pendiente && pendiente.desde) || d.fecha, restarDias(d.fecha, 10) ].sort().pop(),
           hasta:    real ? d.fecha
                          : sumarDias(d.fecha, Math.min(10, Math.max(1, Math.round(RAW * 0.2 / Math.max(etc, 1))))),
           agotado:  Dr,
