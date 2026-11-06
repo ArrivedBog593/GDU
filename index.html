@@ -226,7 +226,7 @@
   <div class="tablero">
 
     <!-- ============ FORMULARIO ============ -->
-    <form class="panel forma" id="forma" novalidate>
+    <form class="panel forma" id="forma" novalidate autocomplete="off">
 
       <fieldset>
         <legend>Parcela</legend>
@@ -297,6 +297,15 @@
           <label for="objetivo">GDU objetivo <span class="hint">(opcional)</span></label>
           <input id="objetivo" type="number" step="1" value="1400" placeholder="Déjalo vacío para omitir">
         </div>
+        <div class="campo" id="campo-gdamad">
+          <label for="gdamad">Madurez para etapas y riegos <span class="hint">°D INIFAP</span></label>
+          <input id="gdamad" type="number" step="10" min="200" value="1451">
+        </div>
+        <div class="campo" id="campo-madreal">
+          <label for="madreal">Ajuste local <span class="hint">— fecha real de madurez de un ciclo pasado</span></label>
+          <input id="madreal" type="date">
+          <span class="eco">Si la llenas, calcula los dos valores de arriba para esta parcela.</span>
+        </div>
       </fieldset>
 
       <fieldset>
@@ -341,10 +350,6 @@
           <div class="campo check">
             <input type="checkbox" id="inifap" checked>
             <label for="inifap">Calibración INIFAP del Valle del Fuerte</label>
-          </div>
-          <div class="campo" id="campo-gdamad">
-            <label for="gdamad">GDA a madurez <span class="hint">°D, método INIFAP</span></label>
-            <input id="gdamad" type="number" step="10" min="200" value="1451">
           </div>
 
           <div class="campo check">
@@ -558,7 +563,8 @@
     if (hay && $("inifap").disabled) $("inifap").checked = true;   // se había apagado sola por otro cultivo
     $("inifap").disabled = !hay;
     if (!hay) $("inifap").checked = false;
-    $("campo-gdamad").hidden = !$("inifap").checked;
+    $("campo-gdamad").hidden = !hay;
+    $("campo-madreal").hidden = !hay;
   }
   $("preset").addEventListener("change", refrescarInifap);
   $("inifap").addEventListener("change", refrescarInifap);
@@ -794,7 +800,8 @@
         // el avance se mide con los grados día del propio modelo, no con los de la pantalla
         const x = Math.min(d.gda / riego.gdaMadurez, 1.15);
         kc = kcInifap(x);
-        zr = cal.pro + (cal.prmax - cal.pro) * (1 - Math.exp(-(d.gda * d.gda) / (cal.a2 * cal.a2)));
+        const a2 = cal.a2 * (riego.gdaMadurez / cal.gdaMadurez);   // mismo ajuste que las etapas
+        zr = cal.pro + (cal.prmax - cal.pro) * (1 - Math.exp(-(d.gda * d.gda) / (a2 * a2)));
       } else {
         kc = kcFAO(avance);
         zr = Math.min(zrIni + (c.zr - zrIni) * Math.min(avance / 0.45, 1), c.zr);
@@ -934,6 +941,27 @@
         });
       }
 
+      // Ajuste local: lo que estos datos de clima acumulan hasta la madurez real
+      // es lo que esta parcela "necesita". Corrige de una vez el sesgo de los datos.
+      let ajuste = null;
+      const madreal = $("madreal").value;
+      if (cultivo.inifap && madreal) {
+        const d = dias.find(x => x.fecha === madreal);
+        if (!d) {
+          mostrarAviso("La fecha real de madurez queda fuera del periodo analizado: corre el ciclo completo de ese año para poder ajustar.");
+        } else {
+          ajuste = {
+            fecha: madreal,
+            gdamad: Math.floor(d.gda),       // hacia abajo, para que la meta caiga justo ese día
+            objetivo: Math.floor(d.acum),
+          };
+          ajuste.factor = ajuste.gdamad / cultivo.inifap.gdaMadurez;
+          $("gdamad").value = ajuste.gdamad;
+          $("objetivo").value = ajuste.objetivo;
+          p.objetivo = ajuste.objetivo;
+        }
+      }
+
       let agua = null;
       if ($("planear").checked) {
         btn.textContent = "Calculando riegos…";
@@ -958,7 +986,7 @@
       }
 
       ultimos = { p, dias, agua };
-      pintar(p, dias, agua);
+      pintar(p, dias, agua, ajuste);
       if (fallas.length) mostrarAviso("Datos incompletos — " + fallas.join(" · "));
       salida.scrollIntoView({ behavior: "smooth", block: "nearest" });
     } catch (err) {
@@ -969,7 +997,7 @@
   });
 
   // ---------- render ----------
-  function pintar(p, dias, agua) {
+  function pintar(p, dias, agua, ajuste) {
     const total    = dias[dias.length - 1].acum;
     const promedio = total / dias.length;
     const perdidos = dias.filter(d => d.perdido).length;
@@ -1017,6 +1045,11 @@
         </div>
       </div>
 
+      ${ajuste ? `
+      <p class="nota-metodo" style="margin:0 0 18px"><strong>Ajuste local:</strong> con madurez el ${fechaLarga(ajuste.fecha)},
+        esta parcela necesita ${nf(ajuste.gdamad, 0)} °D por el método del INIFAP y ${nf(ajuste.objetivo, 0)} GDU en la gráfica,
+        ${nf(ajuste.factor, 2)} veces lo publicado. Ya quedaron puestos en el formulario; anótalos, y para los siguientes ciclos
+        en esta misma parcela escríbelos y deja vacía la fecha.</p>` : ""}
       ${pct !== null ? `
       <div class="seccion">
         <h2>Avance hacia ${nf(p.objetivo, 0)} GDU</h2>
