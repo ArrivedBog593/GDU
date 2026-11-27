@@ -1251,8 +1251,17 @@
     const fCosecha = fMadurez ? sumarDias(fMadurez.fecha, secado) : null;
     const diasCiclo = fCosecha ? diasEntre(dias[0].fecha, fCosecha) : null;
 
-    const textoActual = actual.despues ? `${actual.clave} · ${actual.despues}`
+    // ya en madurez: el grano se está secando en campo hasta la cosecha
+    const enMadurez = hoy.gda >= gdaR6;
+    const faltanCosecha = enMadurez && fCosecha ? diasEntre(hoy.fecha, fCosecha) : null;
+    const listo = faltanCosecha !== null && faltanCosecha <= 0;
+
+    const textoActual = enMadurez ? (listo ? "Lista para cosechar" : "R6 · Secándose en campo")
+                      : actual.despues ? `${actual.clave} · ${actual.despues}`
                       : actual.nombre === actual.clave ? actual.clave : `${actual.clave} · ${actual.nombre}`;
+    const subActual = !enMadurez ? `${nf(hoy.gda, 0)} °D de ${nf(gdaR6, 0)}`
+                    : fMadurez ? `madurez el ${fechaCorta(fMadurez.fecha)}${listo ? ` · seca desde el ${fechaCorta(fCosecha)}` : ""}`
+                    : "madurez alcanzada";
 
     return `
       <div class="seccion">
@@ -1261,12 +1270,16 @@
           <div>
             <div class="k">Ahora</div>
             <div class="v">${textoActual}${critico ? '<span class="critico">crítico</span>' : ""}</div>
-            <div class="s">${hoy.gda >= gdaR6 ? "ciclo completo" : `${nf(hoy.gda, 0)} °D de ${nf(gdaR6, 0)}`}</div>
+            <div class="s">${subActual}</div>
           </div>
           <div>
             <div class="k">Sigue</div>
-            <div class="v">${siguiente ? (siguiente.nombre === siguiente.clave ? siguiente.clave : `${siguiente.clave} · ${siguiente.nombre}`) : "Cosecha"}</div>
-            <div class="s">${sig ? `${sig.estimada ? "≈ " : ""}${fechaLarga(sig.fecha)}` : siguiente ? "fuera del periodo" : "ya en madurez"}</div>
+            ${enMadurez ? `
+            <div class="v">Cosecha</div>
+            <div class="s">${listo ? "ya se puede cosechar"
+              : fCosecha ? `≈ ${fechaLarga(fCosecha)} · en ${faltanCosecha} ${faltanCosecha === 1 ? "día" : "días"}` : "—"}</div>` : `
+            <div class="v">${siguiente.nombre === siguiente.clave ? siguiente.clave : `${siguiente.clave} · ${siguiente.nombre}`}</div>
+            <div class="s">${sig ? `${sig.estimada ? "≈ " : ""}${fechaLarga(sig.fecha)}` : "fuera del periodo"}</div>`}
           </div>
           <div>
             <div class="k">Periodo crítico de agua</div>
