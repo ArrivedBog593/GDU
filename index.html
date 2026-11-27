@@ -53,6 +53,7 @@
 
   /* ---------- layout ---------- */
   .tablero{display:grid;grid-template-columns:330px 1fr;gap:26px;align-items:start}
+  .tablero > *{min-width:0}   /* que la tabla ancha se desplace dentro de su caja y no ensanche la página */
   @media (max-width:900px){.tablero{grid-template-columns:1fr}}
 
   .panel{
@@ -126,13 +127,16 @@
   .riego .vol{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--tinta-suave);margin-top:3px}
   .critico{display:inline-block;background:var(--surco);color:#fff;border-radius:3px;
     padding:0 5px;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;margin-left:4px;vertical-align:1px}
-  .fenologia{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:1px;background:var(--linea);
+  .fenologia{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1px;background:var(--linea);
     border:1px solid var(--linea);border-radius:var(--r);overflow:hidden;margin-bottom:10px}
   .fenologia > div{background:var(--lienzo-2);padding:12px 13px}
   .fenologia .k{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--tinta-suave)}
   .fenologia .v{font-family:'Fraunces',serif;font-size:18px;font-weight:700;line-height:1.2;margin-top:3px}
   .fenologia .s{font-size:12px;color:var(--tinta-suave);margin-top:2px}
   .nota-metodo{font-size:12px;color:var(--tinta-suave);margin:10px 0 0;max-width:70ch}
+  .fenologia .cosecha{background:#E7F0E2}
+  tbody tr.est td{color:var(--tinta-suave);font-style:italic}
+  button.calcular{
     width:100%;padding:12px;border:0;border-radius:var(--r);cursor:pointer;
     background:var(--tinta);color:var(--lienzo-2);
     font:600 14px 'Inter',sans-serif;letter-spacing:.01em;
@@ -301,10 +305,20 @@
           <label for="gdamad">Madurez para etapas y riegos <span class="hint">°D INIFAP</span></label>
           <input id="gdamad" type="number" step="10" min="200" value="1451">
         </div>
+        <div class="campo" id="campo-secado">
+          <label for="secado">Secado en campo hasta la cosecha <span class="hint">días después de madurez</span></label>
+          <input id="secado" type="number" step="1" min="0" max="120" value="30">
+        </div>
         <div class="campo" id="campo-madreal">
-          <label for="madreal">Ajuste local <span class="hint">— fecha real de madurez de un ciclo pasado</span></label>
-          <input id="madreal" type="date">
-          <span class="eco">Si la llenas, calcula los dos valores de arriba para esta parcela.</span>
+          <label for="madtipo">Ajuste local <span class="hint">— una fecha real de un ciclo pasado</span></label>
+          <div class="fila">
+            <select id="madtipo" aria-label="Qué fecha es">
+              <option value="cosecha">Cosecha</option>
+              <option value="r6">Madurez (capa negra)</option>
+            </select>
+            <input id="madreal" type="date" aria-label="Fecha real">
+          </div>
+          <span class="eco">Pon la siembra de ese ciclo y llena esta fecha: calcula los °D a madurez de tu híbrido en esta parcela.</span>
         </div>
       </fieldset>
 
@@ -395,7 +409,14 @@
 
   // ---------- fechas por defecto: últimos 4 meses ----------
   const hoy = new Date();
-  const iso = d => d.toISOString().slice(0, 10);
+  // fecha del calendario local (toISOString da la de UTC: en Sinaloa, después de
+  // las 5 de la tarde ya sería mañana)
+  const iso = d => {
+    const l = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+    return l.toISOString().slice(0, 10);
+  };
+  const esc = s => String(s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const haceMeses = (d, n) => { const c = new Date(d); c.setMonth(c.getMonth() - n); return c; };
   const sumarDias = (f, n) => { const d = new Date(f + "T12:00:00"); d.setDate(d.getDate() + n); return iso(d); };
   const restarDias = (f, n) => sumarDias(f, -n);
@@ -564,6 +585,7 @@
     $("inifap").disabled = !hay;
     if (!hay) $("inifap").checked = false;
     $("campo-gdamad").hidden = !hay;
+    $("campo-secado").hidden = !hay;
     $("campo-madreal").hidden = !hay;
   }
   $("preset").addEventListener("change", refrescarInifap);
@@ -634,12 +656,18 @@
 
     const hoyISO = iso(new Date());
     const fallas = [];
-    const tareas = [
-      pedir(`https://archive-api.open-meteo.com/v1/archive?${comun}&start_date=${inicio}&end_date=${fin}`)
-        .then(absorber).catch(e => fallas.push("archivo histórico: " + e.message))
-    ];
-    // El pronóstico solo aporta si el rango toca los últimos 92 días o el futuro
-    if (fin >= restarDias(hoyISO, 92)) {
+    const tareas = [];
+    // El archivo no tiene días futuros y pedírselos hace fallar toda la consulta;
+    // los últimos días los cubre el pronóstico.
+    const finArchivo = fin < restarDias(hoyISO, 2) ? fin : restarDias(hoyISO, 2);
+    if (inicio <= finArchivo) {
+      tareas.push(
+        pedir(`https://archive-api.open-meteo.com/v1/archive?${comun}&start_date=${inicio}&end_date=${finArchivo}`)
+          .then(absorber).catch(e => fallas.push("archivo histórico: " + e.message))
+      );
+    }
+    // El pronóstico solo aporta si el rango toca los últimos 92 días o los próximos 16
+    if (fin >= restarDias(hoyISO, 92) && inicio <= sumarDias(hoyISO, 15)) {
       tareas.push(
         pedir(`https://api.open-meteo.com/v1/forecast?${comun}&past_days=92&forecast_days=16`)
           .then(absorber).catch(e => fallas.push("pronóstico: " + e.message))
@@ -651,34 +679,38 @@
       .filter(d => d.fecha >= inicio && d.fecha <= fin)
       .sort((a, b) => a.fecha.localeCompare(b.fecha));
 
-    if (!lista.length) {
-      throw new Error(fallas.length
-        ? "No se pudo consultar el clima — " + fallas.join(" · ")
-        : "No llegaron datos para ese rango. Revisa las coordenadas y las fechas.");
+    if (!lista.length && fallas.length) {
+      throw new Error("No se pudo consultar el clima — " + fallas.join(" · "));
     }
     return { dias: lista, fallas };
   }
 
-  // Promedio de evapotranspiración de los mismos días del calendario en años
-  // anteriores. Sirve para estimar el consumo de agua más allá del pronóstico.
+  // Clima promedio de los mismos días del calendario en años anteriores
+  // (temperaturas y evapotranspiración). Con él se proyectan los días que todavía
+  // no tienen dato real, para llegar hasta la madurez y la cosecha.
   async function traerNormales(lat, lon, desde, hasta, anios = 3) {
-    const comun = `latitude=${lat}&longitude=${lon}&daily=et0_fao_evapotranspiration&timezone=auto`;
-    const acumulado = new Map();   // "MM-DD" -> [suma, cuenta]
+    const comun = `latitude=${lat}&longitude=${lon}&daily=${VARS}&timezone=auto`;
+    const acumulado = new Map();   // "MM-DD" -> sumas y cuentas
+    const limite = restarDias(iso(new Date()), 6);   // el archivo va con unos días de retraso
 
     const consultas = [];
     for (let k = 1; k <= anios; k++) {
+      const a = restarAnios(desde, k);
+      const b = restarAnios(hasta, k) < limite ? restarAnios(hasta, k) : limite;
+      if (a > b) continue;
       consultas.push(
-        pedir(`https://archive-api.open-meteo.com/v1/archive?${comun}` +
-              `&start_date=${restarAnios(desde, k)}&end_date=${restarAnios(hasta, k)}`)
+        pedir(`https://archive-api.open-meteo.com/v1/archive?${comun}&start_date=${a}&end_date=${b}`)
           .then(j => {
             const d = j && j.daily;
             if (!d || !d.time) return;
             d.time.forEach((f, i) => {
-              const v = d.et0_fao_evapotranspiration[i];
-              if (v == null) return;
               const clave = f.slice(5);
-              const a = acumulado.get(clave) || [0, 0];
-              acumulado.set(clave, [a[0] + v, a[1] + 1]);
+              const s = acumulado.get(clave) || { tx: 0, tn: 0, nt: 0, e: 0, ne: 0 };
+              const tx = d.temperature_2m_max[i], tn = d.temperature_2m_min[i];
+              const e = d.et0_fao_evapotranspiration[i];
+              if (tx != null && tn != null) { s.tx += tx; s.tn += tn; s.nt++; }
+              if (e != null) { s.e += e; s.ne++; }
+              acumulado.set(clave, s);
             });
           })
           .catch(() => {})
@@ -687,8 +719,46 @@
     await Promise.all(consultas);
 
     const normales = new Map();
-    acumulado.forEach(([suma, n], clave) => normales.set(clave, suma / n));
+    acumulado.forEach((s, clave) => normales.set(clave, {
+      tmax: s.nt ? s.tx / s.nt : null,
+      tmin: s.nt ? s.tn / s.nt : null,
+      et0:  s.ne ? s.e / s.ne : null
+    }));
     return normales;
+  }
+  // el 29 de febrero casi nunca tiene promedio: se usa el 28
+  const normalDe = (normales, fecha) => {
+    const c = fecha.slice(5);
+    return normales.get(c) || (c === "02-29" ? normales.get("02-28") : null) || null;
+  };
+
+  // Serie completa día por día: clima real donde lo hay y, donde no, el promedio
+  // de años anteriores (sin lluvia, a propósito, para no retrasar un riego).
+  function armarSerie(reales, normales, inicio, hasta, p, cultivo) {
+    const porFecha = new Map(reales.map(d => [d.fecha, d]));
+    const serie = [];
+    let acum = 0, gda = 0;
+    for (let f = inicio; f <= hasta; f = sumarDias(f, 1)) {
+      const r = porFecha.get(f), n = normalDe(normales, f);
+      let d;
+      if (r) {
+        d = { ...r, proyectado: false, et0Estimada: r.et0 == null };
+        if (r.et0 == null && n && n.et0 != null) d.et0 = n.et0;
+      } else if (n && n.tmax != null) {
+        d = { fecha: f, tmax: n.tmax, tmin: n.tmin, lluvia: 0, et0: n.et0, proyectado: true, et0Estimada: true };
+      } else continue;
+      d.gdu = gduDia(d.tmax, d.tmin, p.base, p.tope);
+      acum += d.gdu;
+      d.acum = acum;
+      d.tope = d.tmax > p.tope;
+      d.perdido = d.gdu === 0;
+      if (cultivo.inifap) {
+        gda += gdaInifap(d.tmax, d.tmin, cultivo.inifap.tcmin, cultivo.inifap.tcmax);
+        d.gda = gda;
+      }
+      serie.push(d);
+    }
+    return serie;
   }
 
   // ---------- cálculo (misma fórmula del proyecto en Java) ----------
@@ -746,7 +816,7 @@
   // Cuando Dr llega a RAW, toca regar. La ventana recomendada va desde que Dr
   // pasa el 70 % de RAW (ya conviene) hasta el día en que lo alcanza (último sin estrés).
 
-  function balanceHidrico(dias, p, riego, normales) {
+  function balanceHidrico(dias, p, riego) {
     const c = riego.cultivo;
     const zrIni = 0.25;
     // tope de lo que un riego puede meter al suelo con el método y la lámina bruta máxima
@@ -773,7 +843,7 @@
       return k < cal.kco ? cal.kco : k;
     };
 
-    const et0Reciente = dias.filter(d => d.et0 != null).slice(-14).map(d => d.et0);
+    const et0Reciente = dias.filter(d => d.et0 != null && !d.proyectado).slice(-14).map(d => d.et0);
     const et0Respaldo = et0Reciente.length
       ? et0Reciente.reduce((s, v) => s + v, 0) / et0Reciente.length : 4;
 
@@ -791,6 +861,7 @@
     const eventos = [];
     let pendiente = null;        // ventana abierta, esperando el día de riego
     let ultimoRiego = null;      // para no encimar dos riegos en días seguidos
+    let secoSinRiego = false;
 
     dias.forEach(d => {
       const avance = Math.min(d.acum / meta, 1);
@@ -807,9 +878,9 @@
         zr = Math.min(zrIni + (c.zr - zrIni) * Math.min(avance / 0.45, 1), c.zr);
       }
       const TAW = riego.aguaSuelo * zr;
-      const et0 = d.et0 != null ? d.et0 : (normales.get(d.fecha.slice(5)) ?? et0Respaldo);
+      const et0 = d.et0 != null ? d.et0 : et0Respaldo;
       const etc = kc * et0;
-      const estimado = d.et0 == null;
+      const estimado = !!(d.proyectado || d.et0Estimada);
 
       // lluvia aprovechada: se descuentan 2 mm de mojado de hojas y el 20 % que escurre
       const lluviaUtil = Math.max(0, (d.lluvia || 0) * 0.8 - 2);
@@ -866,10 +937,14 @@
         regado = true;
       }
 
+      // se acabaron los riegos previstos y el suelo llegó al punto de riego antes de madurez
+      // (después de madurez el grano solo se seca y ya no hace falta agua)
+      if (!regado && antesDeMadurez && Dr >= RAW && eventos.length >= riego.n) secoSinRiego = true;
+
       serie.push({ fecha: d.fecha, Dr, RAW, TAW, etc, lluvia: d.lluvia || 0, estimado, regado });
     });
 
-    const faltaron = Dr >= serie[serie.length - 1].RAW && eventos.length >= riego.n;
+    const faltaron = secoSinRiego;
     const lluviaTotal = dias.reduce((s, d) => s + (d.lluvia || 0), 0);
     const etcTotal    = serie.reduce((s, d) => s + d.etc, 0);
 
@@ -913,7 +988,7 @@
     if (!isFinite(p.lat)) return mostrarAviso("Revisa la latitud: acepta 25.7908 o 25°47'26.9\"N, hasta 90°.");
     if (!isFinite(p.lon)) return mostrarAviso("Revisa la longitud: acepta -108.9963 o 108°59'46.7\"O, hasta 180°.");
     if (!p.inicio || !p.fin)                              return mostrarAviso("Faltan las fechas del periodo.");
-    if (p.fin <= p.inicio)                                return mostrarAviso("La fecha final debe ser posterior a la de siembra.");
+    if (p.fin < p.inicio)                                 return mostrarAviso("La fecha final no puede ser anterior a la de siembra.");
     if (!isFinite(p.base) || !isFinite(p.tope) || p.tope <= p.base)
                                                           return mostrarAviso("La temperatura tope debe ser mayor que la base.");
 
@@ -921,59 +996,91 @@
     btn.disabled = true; btn.textContent = "Consultando el clima…";
 
     try {
-      const { dias: clima, fallas } = await traerClima(p.lat, p.lon, p.inicio, p.fin);
-      let acum = 0;
-      const dias = clima.map(d => {
-        const g = gduDia(d.tmax, d.tmin, p.base, p.tope);
-        acum += g;
-        return { ...d, gdu: g, acum, tope: d.tmax > p.tope, perdido: g === 0 };
-      });
-
-      // serie paralela de grados día con el método del INIFAP, que es con el que
-      // se calibraron Kc, profundidad de raíz y factor de abatimiento
       const cultivo = cultivoActual();
       const usarCal = $("planear").checked && $("inifap").checked && !!cultivo.inifap;
-      if (cultivo.inifap) {
-        let gda = 0;
-        dias.forEach(d => {
-          gda += gdaInifap(d.tmax, d.tmin, cultivo.inifap.tcmin, cultivo.inifap.tcmax);
-          d.gda = gda;
-        });
-      }
+      const hoyISO = iso(new Date());
+      const avisos = [];
+      // La serie se alarga sola hasta la cosecha (o el GDU objetivo), aunque la
+      // fecha final sea antes: lo que no tiene clima real se llena con promedios.
+      const horizonte = [p.fin, sumarDias(p.inicio, 330)].sort().pop();
+
+      const { dias: reales, fallas } = await traerClima(p.lat, p.lon, p.inicio, p.fin);
 
       // Ajuste local: lo que estos datos de clima acumulan hasta la madurez real
-      // es lo que esta parcela "necesita". Corrige de una vez el sesgo de los datos.
-      let ajuste = null;
-      const madreal = $("madreal").value;
-      if (cultivo.inifap && madreal) {
-        const d = dias.find(x => x.fecha === madreal);
-        if (!d) {
-          mostrarAviso("La fecha real de madurez queda fuera del periodo analizado: corre el ciclo completo de ese año para poder ajustar.");
+      // es lo que esta parcela "necesita". Corrige de una vez el sesgo de los datos
+      // y la duración del híbrido. Si se da la cosecha, la madurez se toma como
+      // esa fecha menos los días de secado.
+      const secado = Math.min(Math.max(parseInt($("secado").value, 10) || 0, 0), 120);
+      const madreal = cultivo.inifap ? $("madreal").value : "";
+      const tipoAjuste = $("madtipo").value;
+      const calcularAjuste = serie => {
+        if (!madreal) return null;
+        const fechaR6 = tipoAjuste === "cosecha" ? restarDias(madreal, secado) : madreal;
+        const d = serie.find(x => x.fecha === fechaR6 && !x.proyectado);
+        if (!d) return { error: true };
+        const gdamad = Math.floor(d.gda * cultivo.inifap.gdaMadurez / cultivo.inifap.etapas.at(-1).gda);
+        return { fecha: madreal, fechaR6, tipo: tipoAjuste, gdamad, objetivo: Math.floor(d.acum),
+                 factor: gdamad / cultivo.inifap.gdaMadurez };
+      };
+      const gdamadDe = aj => aj && !aj.error ? aj.gdamad : Math.max(parseFloat($("gdamad").value) || 1451, 200);
+
+      // fecha en que termina el ciclo dentro de una serie: cosecha en maíz, GDU objetivo en los demás
+      const objetivoDe = aj => aj && !aj.error ? aj.objetivo : p.objetivo;
+      const finDeCiclo = (serie, aj) => {
+        if (cultivo.inifap) {
+          const gdaR6 = etapasEscaladas(cultivo.inifap, gdamadDe(aj)).at(-1).gda;
+          const r6 = serie.find(d => d.gda >= gdaR6);
+          return r6 ? sumarDias(r6.fecha, secado) : null;
+        }
+        const obj = objetivoDe(aj);
+        if (obj > 0) { const o = serie.find(d => d.acum >= obj); return o ? o.fecha : null; }
+        return p.fin;
+      };
+
+      let serie = armarSerie(reales, new Map(), p.inicio, horizonte, p, cultivo);
+      let ajuste = calcularAjuste(serie);
+      let finCiclo = finDeCiclo(serie, ajuste);
+      const hasta = finCiclo && finCiclo > p.fin ? finCiclo : p.fin;
+      const completa = finCiclo && serie.length >= diasEntre(p.inicio, hasta) + 1
+                       && serie.every(d => d.fecha > hasta || !d.et0Estimada);
+
+      if (!completa) {
+        btn.textContent = "Bajando el clima de años anteriores…";
+        const normales = await traerNormales(p.lat, p.lon, p.inicio, horizonte);
+        if (normales.size) {
+          serie = armarSerie(reales, normales, p.inicio, horizonte, p, cultivo);
+          ajuste = calcularAjuste(serie);
+          finCiclo = finDeCiclo(serie, ajuste);
         } else {
-          ajuste = {
-            fecha: madreal,
-            gdamad: Math.floor(d.gda),       // hacia abajo, para que la meta caiga justo ese día
-            objetivo: Math.floor(d.acum),
-          };
-          ajuste.factor = ajuste.gdamad / cultivo.inifap.gdaMadurez;
-          $("gdamad").value = ajuste.gdamad;
-          $("objetivo").value = ajuste.objetivo;
-          p.objetivo = ajuste.objetivo;
+          avisos.push("No se pudo bajar el clima de años anteriores: lo que pasa de los datos reales se estima con el ritmo de las últimas dos semanas, que en invierno adelanta las fechas.");
         }
       }
+      if (!serie.length) throw new Error("No llegaron datos para ese rango. Revisa las coordenadas y las fechas.");
+
+      if (ajuste && ajuste.error) {
+        avisos.push("La fecha real del ajuste local queda fuera de los datos de clima reales: pon la siembra de ese ciclo y una fecha final posterior a la cosecha.");
+        ajuste = null;
+      }
+      if (ajuste) {
+        $("gdamad").value = ajuste.gdamad;
+        $("objetivo").value = ajuste.objetivo;
+        p.objetivo = ajuste.objetivo;
+      }
+
+      // se muestra hasta la fecha final o hasta la cosecha, lo que sea después
+      const corteSerie = finCiclo && finCiclo > p.fin ? finCiclo : p.fin;
+      const dias = serie.filter(d => d.fecha <= corteSerie);
+      // "hoy" del análisis: la fecha final si es pasada (para probar años anteriores)
+      const corte = [p.inicio, [p.fin, hoyISO].sort()[0]].sort().pop();
 
       let agua = null;
       if ($("planear").checked) {
         btn.textContent = "Calculando riegos…";
-        const sinDato = dias.some(d => d.et0 == null);
-        const normales = sinDato
-          ? await traerNormales(p.lat, p.lon, p.inicio, p.fin)
-          : new Map();
         agua = balanceHidrico(dias, p, {
           cultivo:    cultivo,
           calibracion: usarCal,
           metodo:     $("metodo").value.split(",")[2],
-          gdaMadurez: Math.max(parseFloat($("gdamad").value) || 1451, 200),
+          gdaMadurez: gdamadDe(ajuste),
           aguaSuelo:  parseFloat($("suelo").value),
           eficiencia: parseFloat($("metodo").value.split(",")[0]),
           lamina:     Math.max(parseFloat($("lamina").value) || 100, 10),
@@ -982,12 +1089,13 @@
           n:          Math.max(parseInt($("nriegos").value, 10) || 4, 1),
           asiento:    $("asiento").checked,
           aplicados:  leerAplicados()
-        }, normales);
+        });
       }
 
-      ultimos = { p, dias, agua };
-      pintar(p, dias, agua, ajuste);
-      if (fallas.length) mostrarAviso("Datos incompletos — " + fallas.join(" · "));
+      ultimos = { p, dias, agua, corte };
+      pintar(p, dias, agua, ajuste, corte, secado);
+      if (fallas.length) avisos.unshift("Datos incompletos — " + fallas.join(" · "));
+      if (avisos.length) mostrarAviso(avisos.join(" "));
       salida.scrollIntoView({ behavior: "smooth", block: "nearest" });
     } catch (err) {
       mostrarAviso(err.message || "No se pudo consultar el clima. Revisa tu conexión.");
@@ -997,46 +1105,51 @@
   });
 
   // ---------- render ----------
-  function pintar(p, dias, agua, ajuste) {
-    const total    = dias[dias.length - 1].acum;
-    const promedio = total / dias.length;
+  function pintar(p, dias, agua, ajuste, corte, secado) {
+    // las cifras van al día del análisis; lo de después es proyección
+    const hoyDia   = [...dias].reverse().find(d => d.fecha <= corte) || dias[0];
+    const hastaHoy = dias.slice(0, dias.indexOf(hoyDia) + 1);
+    const total    = hoyDia.acum;
+    const promedio = total / hastaHoy.length;
+    const nReales  = dias.filter(d => !d.proyectado).length;
+    const nEst     = dias.length - nReales;
     const perdidos = dias.filter(d => d.perdido).length;
     const topados  = dias.filter(d => d.tope).length;
 
-    // día en que se alcanza el objetivo, o proyección con el ritmo de las últimas 2 semanas
+    // día en que se alcanza el objetivo; si ni con promedios se llega, ritmo de las últimas 2 semanas
     let alcanzado = null, proyeccion = null;
     if (p.objetivo > 0) {
       alcanzado = dias.find(d => d.acum >= p.objetivo) || null;
       if (!alcanzado) {
         const cola = dias.slice(-14);
         const ritmo = cola.reduce((s, d) => s + d.gdu, 0) / cola.length;
+        const ultimo = dias[dias.length - 1];
         if (ritmo > 0.5) {
-          const faltan = Math.ceil((p.objetivo - total) / ritmo);
-          const f = new Date(dias[dias.length - 1].fecha + "T12:00:00");
-          f.setDate(f.getDate() + faltan);
-          proyeccion = { faltan, fecha: iso(f), ritmo };
+          const faltan = Math.ceil((p.objetivo - ultimo.acum) / ritmo);
+          proyeccion = { faltan, fecha: sumarDias(ultimo.fecha, faltan), ritmo };
         }
       }
     }
+    const yaAlcanzado = alcanzado && alcanzado.fecha <= corte && !alcanzado.proyectado;
 
     const pct = p.objetivo > 0 ? Math.min(100, (total / p.objetivo) * 100) : null;
 
     salida.innerHTML = `
       <div class="cifras">
         <div class="cifra destacada">
-          <div class="k">GDU acumulados</div>
+          <div class="k">GDU al ${fechaCorta(hoyDia.fecha)}</div>
           <div class="v">${nf(total, 0)}</div>
         </div>
         <div class="cifra">
-          <div class="k">Días con dato</div>
-          <div class="v">${dias.length}</div>
+          <div class="k">Días con clima real</div>
+          <div class="v">${nReales}${nEst ? ` <span class="u">+ ${nEst} est.</span>` : ""}</div>
         </div>
         <div class="cifra">
           <div class="k">Promedio diario</div>
           <div class="v">${nf(promedio)} <span class="u">GDU</span></div>
         </div>
         <div class="cifra">
-          <div class="k">${alcanzado ? "Objetivo alcanzado" : proyeccion ? "Fecha estimada" : "Días sin avance"}</div>
+          <div class="k">${yaAlcanzado ? "Objetivo alcanzado" : alcanzado || proyeccion ? "Objetivo, fecha estimada" : "Días sin avance"}</div>
           <div class="v" style="font-size:${alcanzado || proyeccion ? "17px" : "26px"};padding-top:${alcanzado || proyeccion ? "5px" : "0"}">
             ${alcanzado ? fechaLarga(alcanzado.fecha)
               : proyeccion ? fechaLarga(proyeccion.fecha) + ` <span class="u">+${proyeccion.faltan} d</span>`
@@ -1046,8 +1159,11 @@
       </div>
 
       ${ajuste ? `
-      <p class="nota-metodo" style="margin:0 0 18px"><strong>Ajuste local:</strong> con madurez el ${fechaLarga(ajuste.fecha)},
-        esta parcela necesita ${nf(ajuste.gdamad, 0)} °D por el método del INIFAP y ${nf(ajuste.objetivo, 0)} GDU en la gráfica,
+      <p class="nota-metodo" style="margin:0 0 18px"><strong>Ajuste local:</strong> con
+        ${ajuste.tipo === "cosecha"
+          ? `cosecha el ${fechaLarga(ajuste.fecha)} (madurez ${secado} días antes, el ${fechaLarga(ajuste.fechaR6)})`
+          : `madurez el ${fechaLarga(ajuste.fecha)}`},
+        este híbrido en esta parcela necesita ${nf(ajuste.gdamad, 0)} °D a madurez por el método del INIFAP y ${nf(ajuste.objetivo, 0)} GDU en la gráfica,
         ${nf(ajuste.factor, 2)} veces lo publicado. Ya quedaron puestos en el formulario; anótalos, y para los siguientes ciclos
         en esta misma parcela escríbelos y deja vacía la fecha.</p>` : ""}
       ${pct !== null ? `
@@ -1057,18 +1173,22 @@
       </div>` : ""}
 
       <div class="seccion">
-        <h2>${p.nombre} · ${fechaLarga(p.inicio)} → ${fechaLarga(p.fin)}</h2>
+        <h2>${esc(p.nombre)} · ${fechaLarga(p.inicio)} → ${fechaLarga(dias[dias.length - 1].fecha)}</h2>
         ${grafica(dias, p)}
         <div class="leyenda">
           <span class="llave"><i class="swatch" style="background:var(--sol)"></i> GDU del día</span>
           <span class="llave"><i class="swatch" style="background:var(--surco)"></i> Día con tope de calor (${topados})</span>
           <span class="llave"><i class="swatch" style="background:var(--linea)"></i> Día sin avance (${perdidos})</span>
           <span class="llave"><i class="swatch" style="background:var(--milpa)"></i> Acumulado</span>
+          ${nEst ? `<span class="llave"><i class="swatch" style="background:var(--sol);opacity:.3"></i> Estimado con promedios</span>` : ""}
         </div>
+        ${nEst ? `<p class="nota-metodo">Los ${nEst} días sin clima real todavía (barras claras, línea punteada) se calcularon con el
+          promedio de temperatura y evapotranspiración de los 3 años anteriores en esas mismas fechas, sin lluvia. Se reemplazan
+          solos por datos reales conforme pasan los días.</p>` : ""}
       </div>
 
-      ${seccionFenologia(dias, agua)}
-      ${agua ? seccionRiegos(agua, p, dias) : ""}
+      ${seccionFenologia(dias, agua, corte, secado)}
+      ${agua ? seccionRiegos(agua, p, dias, corte) : ""}
 
       <div class="seccion">
         <h2>Detalle diario</h2>
@@ -1077,8 +1197,8 @@
             <thead><tr><th>Fecha</th><th>T. máx</th><th>T. mín</th><th>GDU</th><th>Acumulado</th><th>Lluvia</th>${agua ? "<th>Falta agua</th>" : ""}</tr></thead>
             <tbody>
               ${dias.map((d, i) => `
-                <tr class="${alcanzado && d.fecha === alcanzado.fecha ? "meta" : ""}">
-                  <td>${fechaCorta(d.fecha)}</td>
+                <tr class="${alcanzado && d.fecha === alcanzado.fecha ? "meta" : ""}${d.proyectado ? " est" : ""}">
+                  <td>${fechaCorta(d.fecha)}${d.proyectado ? " est." : ""}</td>
                   <td>${nf(d.tmax)}</td>
                   <td>${nf(d.tmin)}</td>
                   <td class="${d.perdido ? "cero" : d.tope ? "tope" : ""}">${nf(d.gdu)}</td>
@@ -1101,27 +1221,26 @@
 
 
   // ---------- etapas del cultivo ----------
-  function seccionFenologia(dias, agua) {
+  function seccionFenologia(dias, agua, corte, secado) {
     const cal = cultivoActual().inifap;
     if (!cal || dias[0].gda == null) return "";
-    const etapas = etapasEscaladas(cal, Math.max(parseFloat($("gdamad").value) || 1451, 200));
+    const etapas = etapasEscaladas(cal, agua ? agua.gdaMadurez : Math.max(parseFloat($("gdamad").value) || 1451, 200));
     const gdaR6 = etapas[etapas.length - 1].gda;
 
-    const hoyISO = iso(new Date());
-    const hoy = [...dias].reverse().find(d => d.fecha <= hoyISO) || dias[dias.length - 1];
+    const hoy = [...dias].reverse().find(d => d.fecha <= corte) || dias[0];
     const { actual, siguiente } = etapaEn(etapas, hoy.gda);
     const critico = enCritico(cal, etapas, hoy.gda);
 
-    // fecha en que se alcanza un valor de °D: dentro del periodo si se puede,
-    // si no, proyectando con el ritmo de las últimas dos semanas
+    // fecha en que se alcanza un valor de °D: con clima real si ya pasó, con los
+    // promedios de años anteriores si no; el ritmo reciente solo como último recurso
     const cola = dias.slice(-14);
     const ritmo = (cola[cola.length - 1].gda - cola[0].gda) / Math.max(cola.length - 1, 1);
     const fechaDe = gda => {
       const d = dias.find(x => x.gda >= gda);
-      if (d) return { fecha: d.fecha, estimada: false };
+      if (d) return { fecha: d.fecha, estimada: d.proyectado || d.fecha > corte, conRitmo: false };
       if (ritmo <= 0.5) return null;
       const ultimo = dias[dias.length - 1];
-      return { fecha: sumarDias(ultimo.fecha, Math.ceil((gda - ultimo.gda) / ritmo)), estimada: true };
+      return { fecha: sumarDias(ultimo.fecha, Math.ceil((gda - ultimo.gda) / ritmo)), estimada: true, conRitmo: true };
     };
 
     const sig = siguiente ? fechaDe(siguiente.gda) : null;
@@ -1129,6 +1248,8 @@
     const finCritico    = etapas.find(e => e.clave === cal.critico[1]);
     const fCritico = fechaDe(inicioCritico.gda), fFinCritico = fechaDe(finCritico.gda);
     const fMadurez = fechaDe(gdaR6);
+    const fCosecha = fMadurez ? sumarDias(fMadurez.fecha, secado) : null;
+    const diasCiclo = fCosecha ? diasEntre(dias[0].fecha, fCosecha) : null;
 
     const textoActual = actual.despues ? `${actual.clave} · ${actual.despues}`
                       : actual.nombre === actual.clave ? actual.clave : `${actual.clave} · ${actual.nombre}`;
@@ -1154,8 +1275,16 @@
           </div>
           <div>
             <div class="k">Madurez fisiológica</div>
-            <div class="v">${fMadurez ? fechaLarga(fMadurez.fecha) : "—"}</div>
-            <div class="s">${fMadurez && fMadurez.estimada ? "estimada con el ritmo reciente" : fMadurez ? "dentro del periodo" : "sin datos suficientes"}</div>
+            <div class="v">${fMadurez ? `${fMadurez.estimada ? "≈ " : ""}${fechaLarga(fMadurez.fecha)}` : "—"}</div>
+            <div class="s">${!fMadurez ? "sin datos suficientes"
+              : fMadurez.conRitmo ? "estimada con el ritmo reciente"
+              : fMadurez.estimada ? `${diasEntre(dias[0].fecha, fMadurez.fecha)} días · con clima promedio`
+              : `${diasEntre(dias[0].fecha, fMadurez.fecha)} días · con clima real`}</div>
+          </div>
+          <div class="cosecha">
+            <div class="k">Cosecha estimada</div>
+            <div class="v">${fCosecha ? `≈ ${fechaLarga(fCosecha)}` : "—"}</div>
+            <div class="s">${fCosecha ? `${diasCiclo} días de ciclo · madurez + ${secado} de secado` : "sin datos suficientes"}</div>
           </div>
         </div>
         ${tiraEtapas(etapas, cal, hoy.gda, agua)}
@@ -1216,10 +1345,12 @@
   }
 
   // ---------- calendario de riegos ----------
-  function seccionRiegos(agua, p, dias) {
-    const hoyISO = iso(new Date());
-    const ultimoReal = [...dias].reverse().find(d => d.et0 != null);
-    const cortePronostico = ultimoReal ? ultimoReal.fecha : hoyISO;
+  function seccionRiegos(agua, p, dias, corte) {
+    const hoyISO = corte;   // en una prueba con un año pasado, "hoy" es la fecha final
+    const ultimoReal = [...dias].reverse().find(d => !d.proyectado && !d.et0Estimada);
+    const cortePronostico = ultimoReal ? ultimoReal.fecha : null;
+    const hayEstimados = dias.some(d => d.proyectado || d.et0Estimada);
+    const diaCorte = [...dias].reverse().find(d => d.fecha <= corte) || dias[0];
 
     const sugeridos = agua.eventos.filter(e => !e.hecho);
     const ultimoSugerido = agua.llegaMadurez && !agua.faltaron ? sugeridos[sugeridos.length - 1] : null;
@@ -1281,11 +1412,11 @@
         ${pendientes.length ? `<p class="nota-metodo"><strong>Por regar:</strong> ${pendientes.length} riego(s), ${nf(brutaPendiente, 0)} mm brutos en total · ${volumenTexto(brutaPendiente, agua)}.</p>` : ""}
         <p class="nota-metodo">
           ${agua.calibrada
-            ? `Calculado con el modelo de programación integral calibrado para maíz en el Valle del Fuerte (Ojeda-Bustamante, Sifuentes y Unland, 2006), el mismo que usa IrriModel: ${nf(agua.gdaTotal, 0)} de ${nf(agua.gdaMadurez, 0)} °D a madurez por el método del INIFAP.`
+            ? `Calculado con el modelo de programación integral calibrado para maíz en el Valle del Fuerte (Ojeda-Bustamante, Sifuentes y Unland, 2006), el mismo que usa IrriModel: al ${fechaCorta(diaCorte.fecha)} van ${nf(diaCorte.gda, 0)} de ${nf(agua.etapas ? agua.etapas.at(-1).gda : agua.gdaMadurez, 0)} °D a madurez por el método del INIFAP.`
             : `Calculado con coeficientes genéricos de FAO-56.`}
           Consumo del cultivo en el periodo: ${nf(agua.etcTotal, 0)} mm · lluvia registrada: ${nf(agua.lluviaTotal, 0)} mm ·
           cada riego puede aportar hasta ${nf(agua.laminaNeta, 0)} mm netos al suelo.
-          Los días posteriores al ${fechaCorta(cortePronostico)} usan evapotranspiración promedio de años anteriores y suponen que no llueve, así que esas fechas se recorren conforme lleguen datos reales.
+          ${hayEstimados ? `${cortePronostico ? `Los días posteriores al ${fechaCorta(cortePronostico)}` : "Todos los días"} usan clima promedio de años anteriores y suponen que no llueve, así que esas fechas se recorren conforme lleguen datos reales.` : ""}
         </p>
       </div>
 
@@ -1365,10 +1496,15 @@
       const y = yDia(d.gdu);
       const color = d.perdido ? "var(--linea)" : d.tope ? "var(--surco)" : "var(--sol)";
       const alto = Math.max(mT + ph - y, d.perdido ? 1.5 : 0);
-      return `<rect x="${x(i).toFixed(2)}" y="${(mT + ph - alto).toFixed(2)}" width="${bw.toFixed(2)}" height="${alto.toFixed(2)}" fill="${color}" opacity=".85"><title>${fechaCorta(d.fecha)} · ${nf(d.tmin)}° / ${nf(d.tmax)}° · ${nf(d.gdu)} GDU · acum. ${nf(d.acum,0)}</title></rect>`;
+      return `<rect x="${x(i).toFixed(2)}" y="${(mT + ph - alto).toFixed(2)}" width="${bw.toFixed(2)}" height="${alto.toFixed(2)}" fill="${color}" opacity="${d.proyectado ? ".3" : ".85"}"><title>${fechaCorta(d.fecha)}${d.proyectado ? " (promedio)" : ""} · ${nf(d.tmin)}° / ${nf(d.tmax)}° · ${nf(d.gdu)} GDU · acum. ${nf(d.acum,0)}</title></rect>`;
     }).join("");
 
-    const linea = dias.map((d, i) => `${(x(i) + bw / 2).toFixed(2)},${yAcum(d.acum).toFixed(2)}`).join(" ");
+    // acumulado: línea continua con clima real, punteada con promedios
+    const punto = (d, i) => `${(x(i) + bw / 2).toFixed(2)},${yAcum(d.acum).toFixed(2)}`;
+    const iEst = dias.findIndex(d => d.proyectado);
+    const real = iEst < 0 ? dias : dias.slice(0, iEst);
+    const linea = real.map(punto).join(" ");
+    const lineaEst = iEst < 0 ? "" : dias.slice(Math.max(iEst - 1, 0)).map((d, j) => punto(d, j + Math.max(iEst - 1, 0))).join(" ");
 
     // marcas del eje: 5 pasos del acumulado
     const ejes = [0, .25, .5, .75, 1].map(f => {
@@ -1383,7 +1519,10 @@
       const m = d.fecha.slice(0, 7);
       if (m === mesPrevio) return "";
       mesPrevio = m;
-      return `<text x="${x(i).toFixed(1)}" y="${H - 8}" font-size="10" fill="#5A6A5C" font-family="IBM Plex Mono, monospace">${fechaCorta(d.fecha).replace(/^\d+\s*/, "")}</text>`;
+      // un mes que apenas empieza al final o al principio no lleva etiqueta: se encimaría
+      if (i === 0 && dias[8] && dias[8].fecha.slice(0, 7) !== m || x(i) > W - mR - 24) return "";
+      const nombre = new Date(d.fecha + "T12:00:00").toLocaleDateString("es-MX", { month: "short" }).replace(".", "");
+      return `<text x="${x(i).toFixed(1)}" y="${H - 8}" font-size="10" fill="#5A6A5C" font-family="IBM Plex Mono, monospace">${nombre}</text>`;
     }).join("");
 
     const meta = p.objetivo > 0 && p.objetivo <= maxAcum
@@ -1396,6 +1535,7 @@
               aria-label="GDU diarios y acumulados del ${p.inicio} al ${p.fin}. Total ${nf(total,0)} GDU.">
       ${ejes}${barras}${meta}
       <polyline points="${linea}" fill="none" stroke="var(--milpa)" stroke-width="2.2" stroke-linejoin="round"/>
+      ${lineaEst ? `<polyline points="${lineaEst}" fill="none" stroke="var(--milpa)" stroke-width="2.2" stroke-dasharray="4 4"/>` : ""}
       ${meses}
     </svg>`;
   }
@@ -1408,7 +1548,8 @@
       [`Parcela`, p.nombre],
       [`Coordenadas`, `${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}`],
       [`Coordenadas (g m s)`, `${escribirDMS(p.lat, true)}  ${escribirDMS(p.lon, false)}`],
-      [`Periodo`, `${p.inicio} a ${p.fin}`],
+      [`Periodo`, `${p.inicio} a ${dias[dias.length - 1].fecha}`],
+      [`Dias con clima promedio`, dias.filter(d => d.proyectado).length],
       [`Temp. base / tope`, `${p.base} / ${p.tope}`],
       [`GDU objetivo`, p.objetivo ?? "—"],
       [],
@@ -1420,11 +1561,11 @@
                   ["Consumo del cultivo (mm)", agua.etcTotal.toFixed(0)],
                   ["Lluvia del periodo (mm)", agua.lluviaTotal.toFixed(0)]] : []),
       [],
-      ["Fecha", "T max (C)", "T min (C)", "GDU dia", "GDU acumulado", "Lluvia (mm)",
+      ["Fecha", "Clima", "T max (C)", "T min (C)", "GDU dia", "GDU acumulado", "Lluvia (mm)",
         ...(dias[0].gda != null ? ["GDA INIFAP"] : []),
         ...(agua ? ["ETc (mm)", "Falta agua (mm)", "Punto de riego (mm)", "Regar"] : [])],
       ...dias.map((d, i) => [
-        d.fecha, d.tmax, d.tmin, d.gdu.toFixed(2), d.acum.toFixed(2), (d.lluvia || 0).toFixed(1),
+        d.fecha, d.proyectado ? "promedio" : "real", d.tmax.toFixed(1), d.tmin.toFixed(1), d.gdu.toFixed(2), d.acum.toFixed(2), (d.lluvia || 0).toFixed(1),
         ...(d.gda != null ? [d.gda.toFixed(1)] : []),
         ...(agua ? [agua.serie[i].etc.toFixed(2), agua.serie[i].Dr.toFixed(1),
                     agua.serie[i].RAW.toFixed(1), agua.serie[i].regado ? "SI" : ""] : [])
@@ -1434,7 +1575,7 @@
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const a = document.createElement("a");
     a.href = url;
-    a.download = `GDU_${p.nombre.replace(/\s+/g, "_")}_${p.inicio}_${p.fin}.csv`;
+    a.download = `GDU_${p.nombre.replace(/[\\/:*?"<>|]/g, "").replace(/\s+/g, "_")}_${p.inicio}_${dias[dias.length - 1].fecha}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
