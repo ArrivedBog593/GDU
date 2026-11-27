@@ -100,6 +100,7 @@
   .campo.check input{width:auto;margin:0}
   .campo.check label{margin:0;font-weight:400}
   #bloque-riego[hidden]{display:none}
+  #bloque-guardado[hidden]{display:none}
 
   .aplicado{display:grid;grid-template-columns:1fr 62px 26px;gap:6px;margin-bottom:6px;align-items:center}
   .aplicado input{padding:6px 7px;font-size:12.5px}
@@ -298,12 +299,13 @@
           </div>
         </div>
         <div class="campo">
-          <label for="objetivo">GDU objetivo <span class="hint">(opcional)</span></label>
-          <input id="objetivo" type="number" step="1" value="1400" placeholder="Déjalo vacío para omitir">
+          <label for="objetivo">GDU objetivo en °C <span class="hint">— de una ficha en °F, divide entre 1.8</span></label>
+          <input id="objetivo" type="number" step="1" value="1915" placeholder="Déjalo vacío para omitir">
         </div>
         <div class="campo" id="campo-gdamad">
           <label for="gdamad">Madurez para etapas y riegos <span class="hint">°D INIFAP</span></label>
-          <input id="gdamad" type="number" step="10" min="200" value="1451">
+          <input id="gdamad" type="number" step="10" min="200" value="2000">
+          <span class="eco">2000 = maíz blanco calibrado con una cosecha real en el Valle del Fuerte (el INIFAP publicó 1451). Al cambiarlo se ajusta también el GDU objetivo.</span>
         </div>
         <div class="campo" id="campo-secado">
           <label for="secado">Secado en campo hasta la cosecha <span class="hint">días después de madurez</span></label>
@@ -342,7 +344,7 @@
           <div class="campo">
             <label for="metodo">Método de riego</label>
             <select id="metodo">
-              <option value="0.65,100,gravedad">Rodado o por gravedad</option>
+              <option value="0.65,150,gravedad">Rodado o por gravedad</option>
               <option value="0.78,60,aspersion">Aspersión</option>
               <option value="0.90,25,goteo">Goteo</option>
             </select>
@@ -350,7 +352,7 @@
           <div class="fila">
             <div class="campo">
               <label for="lamina">Lámina bruta máx. <span class="hint">mm</span></label>
-              <input id="lamina" type="number" step="5" min="10" value="100">
+              <input id="lamina" type="number" step="5" min="10" value="150">
             </div>
             <div class="campo">
               <label for="nriegos">Riegos previstos</label>
@@ -381,6 +383,10 @@
 
       <button class="calcular" type="submit" id="btn-calcular">Calcular acumulado</button>
       <p class="aviso" id="aviso" hidden></p>
+      <div class="fila-mini" id="bloque-guardado" hidden>
+        <span class="eco" id="eco-guardado" style="flex:1 1 100%"></span>
+        <button type="button" class="mini" id="btn-olvidar">Borrar los datos guardados</button>
+      </div>
     </form>
 
     <!-- ============ RESULTADOS ============ -->
@@ -528,7 +534,10 @@
   // kc: coeficientes FAO-56 (inicial, media, final) · zr: profundidad de raíz (m)
   // p: fracción de agua aprovechable que se puede agotar sin estresar al cultivo
   const CULTIVOS = {
-    maiz:    { base: 10,   tope: 30, objetivo: 1400, kc: [0.30, 1.20, 0.50], zr: 1.00, p: 0.55,
+    // Valores de fábrica calibrados con el ciclo 2025-26 en el Valle del Fuerte (siembra
+    // 3-nov, cosecha 1-may, 30 días de secado): 2000 °D INIFAP y 1915 GDU a madurez.
+    // Las fichas de semilla de EE. UU. dan ~2500 °F (≈ 1400 °C), que aquí adelanta todo.
+    maiz:    { base: 10,   tope: 30, objetivo: 1915, madurez: 2000, kc: [0.30, 1.20, 0.50], zr: 1.00, p: 0.55,
                // Modelo de programación integral calibrado para maíz en el Valle del Fuerte
                // (Ojeda-Bustamante, Sifuentes y Unland, Agrociencia 40:13-25, 2006), el mismo
                // que usa IrriModel del CEVAF-INIFAP en Juan José Ríos.
@@ -568,6 +577,14 @@
     const c = CULTIVOS[e.target.value];
     if (!c) return;
     $("base").value = c.base; $("tope").value = c.tope; $("objetivo").value = c.objetivo;
+    if (c.madurez) $("gdamad").value = c.madurez;
+  });
+
+  // El GDU objetivo (método de la gráfica) y los °D INIFAP miden lo mismo con fórmulas
+  // distintas; con el clima de esta zona, uno es ~0.96 del otro. Se mueven juntos.
+  $("gdamad").addEventListener("input", () => {
+    const c = cultivoActual(), g = parseFloat($("gdamad").value);
+    if (c.madurez && g > 0) $("objetivo").value = Math.round(g * c.objetivo / c.madurez);
   });
   ["base","tope","objetivo"].forEach(id =>
     $(id).addEventListener("input", () => { $("preset").value = ""; })
@@ -593,7 +610,7 @@
   refrescarInifap();
 
   // ---------- riegos que ya se hicieron ----------
-  function agregarFilaRiego(fecha = "", lamina = "") {
+  function agregarFilaRiego(fecha = "", lamina = "", enfocar = true) {
     const fila = document.createElement("div");
     fila.className = "aplicado";
     fila.innerHTML = `
@@ -602,7 +619,7 @@
       <button type="button" class="quitar" title="Quitar este riego" aria-label="Quitar este riego">×</button>`;
     fila.querySelector(".quitar").addEventListener("click", () => fila.remove());
     $("aplicados").appendChild(fila);
-    fila.querySelector(".ap-fecha").focus();
+    if (enfocar) fila.querySelector(".ap-fecha").focus();
   }
   $("btn-agregar-riego").addEventListener("click", () => agregarFilaRiego());
 
@@ -623,6 +640,55 @@
 
   function mostrarAviso(txt){ aviso.textContent = txt; aviso.hidden = false; }
   function ocultarAviso(){ aviso.hidden = true; }
+
+  // ---------- recordar los datos en este dispositivo ----------
+  // Se guardan al calcular, solo en este teléfono o computadora. La fecha final no se
+  // guarda: siempre empieza en hoy. El ajuste local tampoco, porque es de una sola vez.
+  const CLAVE = "gdu-calculadora-v1";
+  const CAMPOS = ["nombre", "superficie", "lat", "lon", "inicio", "preset", "base", "tope", "objetivo",
+                  "gdamad", "secado", "suelo", "metodo", "lamina", "nriegos", "gasto"];
+  const CASILLAS = ["planear", "inifap", "asiento"];
+
+  function guardarDatos() {
+    try {
+      const d = { guardado: iso(new Date()) };
+      CAMPOS.forEach(id => { d[id] = $(id).value; });
+      CASILLAS.forEach(id => { d[id] = $(id).checked; });
+      d.aplicados = [...document.querySelectorAll(".aplicado")]
+        .map(f => [f.querySelector(".ap-fecha").value, f.querySelector(".ap-lamina").value])
+        .filter(a => a[0]);
+      localStorage.setItem(CLAVE, JSON.stringify(d));
+      avisarGuardado("Datos guardados en este dispositivo: la próxima vez que abras la página ya estarán puestos.");
+    } catch (e) { /* sin almacenamiento (modo incógnito, etc.): la página funciona igual */ }
+  }
+
+  function cargarDatos() {
+    let d = null;
+    try { d = JSON.parse(localStorage.getItem(CLAVE) || "null"); } catch (e) { d = null; }
+    if (!d || typeof d !== "object") return;
+    CAMPOS.forEach(id => {
+      const v = d[id], el = $(id);
+      if (typeof v !== "string") return;
+      if (el.tagName === "SELECT" && ![...el.options].some(o => o.value === v)) return;
+      el.value = v;
+    });
+    CASILLAS.forEach(id => { if (typeof d[id] === "boolean") $(id).checked = d[id]; });
+    (Array.isArray(d.aplicados) ? d.aplicados : []).forEach(a => {
+      if (Array.isArray(a) && typeof a[0] === "string") agregarFilaRiego(a[0], String(a[1] ?? ""), false);
+    });
+    avisarGuardado(`Se cargaron los datos que guardaste${d.guardado ? " el " + fechaLarga(d.guardado) : ""}.`);
+  }
+
+  function avisarGuardado(txt) {
+    $("eco-guardado").textContent = txt;
+    $("bloque-guardado").hidden = false;
+  }
+
+  $("btn-olvidar").addEventListener("click", () => {
+    if (!confirm("¿Borrar los datos guardados en este dispositivo y volver a los valores de fábrica?")) return;
+    try { localStorage.removeItem(CLAVE); } catch (e) {}
+    location.reload();
+  });
 
   // ---------- descarga de clima ----------
   // El archivo histórico va con ~5 días de retraso, así que los días recientes
@@ -967,6 +1033,13 @@
     return new Date(a, m - 1, d).toLocaleDateString("es-MX", { day: "2-digit", month: "short" });
   };
 
+  // datos guardados de la vez anterior (después de definir todo lo que usan)
+  cargarDatos();
+  refrescarEco("lat", true);
+  refrescarEco("lon", false);
+  refrescarInifap();
+  $("bloque-riego").hidden = !$("planear").checked;
+
   // ---------- envío ----------
   let ultimos = null;
 
@@ -1022,7 +1095,7 @@
         return { fecha: madreal, fechaR6, tipo: tipoAjuste, gdamad, objetivo: Math.floor(d.acum),
                  factor: gdamad / cultivo.inifap.gdaMadurez };
       };
-      const gdamadDe = aj => aj && !aj.error ? aj.gdamad : Math.max(parseFloat($("gdamad").value) || 1451, 200);
+      const gdamadDe = aj => aj && !aj.error ? aj.gdamad : Math.max(parseFloat($("gdamad").value) || cultivoActual().madurez || 1451, 200);
 
       // fecha en que termina el ciclo dentro de una serie: cosecha en maíz, GDU objetivo en los demás
       const objetivoDe = aj => aj && !aj.error ? aj.objetivo : p.objetivo;
@@ -1094,6 +1167,7 @@
 
       ultimos = { p, dias, agua, corte };
       pintar(p, dias, agua, ajuste, corte, secado);
+      guardarDatos();
       if (fallas.length) avisos.unshift("Datos incompletos — " + fallas.join(" · "));
       if (avisos.length) mostrarAviso(avisos.join(" "));
       salida.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -1164,8 +1238,8 @@
           ? `cosecha el ${fechaLarga(ajuste.fecha)} (madurez ${secado} días antes, el ${fechaLarga(ajuste.fechaR6)})`
           : `madurez el ${fechaLarga(ajuste.fecha)}`},
         este híbrido en esta parcela necesita ${nf(ajuste.gdamad, 0)} °D a madurez por el método del INIFAP y ${nf(ajuste.objetivo, 0)} GDU en la gráfica,
-        ${nf(ajuste.factor, 2)} veces lo publicado. Ya quedaron puestos en el formulario; anótalos, y para los siguientes ciclos
-        en esta misma parcela escríbelos y deja vacía la fecha.</p>` : ""}
+        ${nf(ajuste.factor, 2)} veces lo publicado. Ya quedaron puestos en el formulario y guardados en este dispositivo; para los
+        siguientes ciclos en esta misma parcela solo deja vacía la fecha del ajuste.</p>` : ""}
       ${pct !== null ? `
       <div class="seccion">
         <h2>Avance hacia ${nf(p.objetivo, 0)} GDU</h2>
@@ -1224,7 +1298,7 @@
   function seccionFenologia(dias, agua, corte, secado) {
     const cal = cultivoActual().inifap;
     if (!cal || dias[0].gda == null) return "";
-    const etapas = etapasEscaladas(cal, agua ? agua.gdaMadurez : Math.max(parseFloat($("gdamad").value) || 1451, 200));
+    const etapas = etapasEscaladas(cal, agua ? agua.gdaMadurez : Math.max(parseFloat($("gdamad").value) || cultivoActual().madurez || 1451, 200));
     const gdaR6 = etapas[etapas.length - 1].gda;
 
     const hoy = [...dias].reverse().find(d => d.fecha <= corte) || dias[0];
@@ -1277,7 +1351,7 @@
             ${enMadurez ? `
             <div class="v">Cosecha</div>
             <div class="s">${listo ? "ya se puede cosechar"
-              : fCosecha ? `≈ ${fechaLarga(fCosecha)} · en ${faltanCosecha} ${faltanCosecha === 1 ? "día" : "días"}` : "—"}</div>` : `
+              : fCosecha ? `desde ≈ ${fechaLarga(fCosecha)} · en ${faltanCosecha} ${faltanCosecha === 1 ? "día" : "días"}` : "—"}</div>` : `
             <div class="v">${siguiente.nombre === siguiente.clave ? siguiente.clave : `${siguiente.clave} · ${siguiente.nombre}`}</div>
             <div class="s">${sig ? `${sig.estimada ? "≈ " : ""}${fechaLarga(sig.fecha)}` : "fuera del periodo"}</div>`}
           </div>
@@ -1295,8 +1369,8 @@
               : `${diasEntre(dias[0].fecha, fMadurez.fecha)} días · con clima real`}</div>
           </div>
           <div class="cosecha">
-            <div class="k">Cosecha estimada</div>
-            <div class="v">${fCosecha ? `≈ ${fechaLarga(fCosecha)}` : "—"}</div>
+            <div class="k">Se puede empezar a cosechar</div>
+            <div class="v">${fCosecha ? `desde ≈ ${fechaLarga(fCosecha)}` : "—"}</div>
             <div class="s">${fCosecha ? `${diasCiclo} días de ciclo · madurez + ${secado} de secado` : "sin datos suficientes"}</div>
           </div>
         </div>

@@ -22,6 +22,10 @@ Pensada para maíz blanco de riego en el norte de Sinaloa, usa el mismo modelo d
 - Etapa actual, siguiente etapa con fecha, periodo crítico de agua (floración a grano lechoso), fecha estimada de madurez fisiológica y **fecha estimada de cosecha** (madurez más los días de secado en campo).
 - Aunque la siembra sea hoy, el cálculo llega hasta la cosecha: los días que todavía no tienen clima real se llenan con el promedio de los 3 años anteriores.
 - **Ajuste local** con la fecha real de cosecha (o de madurez) de un ciclo pasado, para que el modelo se ajuste al híbrido y a la parcela.
+- La cosecha se da como **desde cuándo se puede empezar a cosechar**; la fecha real depende también de la logística (trilladora, orden de las parcelas).
+
+**Datos guardados**
+- Al calcular, la página guarda en el teléfono la parcela, la fecha de siembra, el cultivo, los °D calibrados, el riego y los riegos anotados. La próxima vez ya están puestos; solo cambia lo que haga falta. Se borran con *Borrar los datos guardados*.
 - Tira visual con todas las etapas, el día de hoy y los riegos encima.
 
 **Riegos**
@@ -48,6 +52,17 @@ Pensada para maíz blanco de riego en el norte de Sinaloa, usa el mismo modelo d
 
 En el teléfono: abre la página en Chrome y elige **Agregar a pantalla principal** para tenerla como app.
 
+### Valores de fábrica para maíz
+
+| Campo | Valor | De dónde sale |
+|---|---|---|
+| Madurez para etapas y riegos | 2000 °D INIFAP | Calibrado con el ciclo 2025-26 en el Valle del Fuerte: siembra 3 de noviembre, cosecha 1 de mayo |
+| GDU objetivo | 1915 GDU °C | Lo que acumuló ese mismo ciclo hasta madurez; se mueve solo al cambiar la madurez |
+| Secado en campo | 30 días | Entre madurez fisiológica y cosecha |
+| Lámina bruta (gravedad) | 150 mm | Riego de auxilio rodado |
+
+Las fichas de semilla traen los GDU en °F. Para pasarlos a °C se divide entre 1.8 (sin restar 32): 2500 °F ≈ 1390 °C. Ese número es de híbridos y veranos del Medio Oeste de EE. UU.; para maíz blanco de invierno en Sinaloa, con los datos de Open-Meteo, hacen falta unos 1900–2000.
+
 ---
 
 ## Cómo calcula
@@ -68,7 +83,7 @@ Tmedia ≤ 10 °C        → 0
 Tmedia ≥ 30 °C        → 20
 ```
 
-Madurez fisiológica a **1451 °D** para variedades intermedias (ajustable).
+Madurez fisiológica a **1451 °D** para variedades intermedias según el artículo; la página usa **2000 °D** por defecto, calibrado con una cosecha real (ajustable).
 
 ### Balance de agua en el suelo
 
@@ -141,7 +156,8 @@ Es una herramienta de planeación, no un sensor. El modelo no sabe si el suelo d
 - Para **goteo** en maíz no hay factor de abatimiento publicado; se usa 0.50 como extrapolación.
 - Entre emergencia y V10 la tabla de etapas original tiene etapas intermedias que no se pudieron recuperar; ese tramo se muestra como desarrollo vegetativo.
 - Las fechas posteriores al pronóstico son estimaciones y se recorren solas conforme llegan datos reales.
-- Los 1451 °D a madurez son de una variedad intermedia; un híbrido más tardío necesita más. El secado en campo (30 días por defecto) depende de la humedad a la que se coseche. Las dos cosas se corrigen de una vez con el ajuste local por fecha de cosecha.
+- Los 2000 °D de fábrica salen de un solo ciclo y una parcela; conviene comprobarlos con otros años (siembra de ese año, fecha final después de mayo, ajuste local vacío) y, si no cuadran, recalibrar.
+- Los 1451 °D del artículo son de una variedad intermedia; un híbrido más tardío necesita más. El secado en campo (30 días por defecto) depende de la humedad a la que se coseche. Las dos cosas se corrigen de una vez con el ajuste local por fecha de cosecha.
 - Las temperaturas de Open-Meteo son de un modelo con celdas de varios kilómetros, no de una estación; cerca de la costa pueden salir algo más templadas que en la parcela. El ajuste local también absorbe ese sesgo.
 
 ---
